@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/Server/">
+    <Project Path="Server/Multiplayer.Server/Multiplayer.Server.csproj" />
+  </Folder>
+</Solution>

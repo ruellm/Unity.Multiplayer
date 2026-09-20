@@ -1,0 +1,50 @@
+# ---- Unity (Client/) ----
+Client/[Ll]ibrary/
+Client/[Tt]emp/
+Client/[Oo]bj/
+Client/[Bb]uild/
+Client/[Bb]uilds/
+Client/[Ll]ogs/
+Client/[Uu]ser[Ss]ettings/
+Client/[Mm]emoryCaptures/
+Client/[Rr]ecordings/
+Client/.vsconfig
+Client/*.sln
+Client/*.slnx
+
+# Unity build artifacts
+*.apk
+*.aab
+*.unitypackage
+*.app
+ExportedObj/
+sysinfo.txt
+crashlytics-build.properties
+
+# ---- .NET (Server/) ----
+[Bb]in/
+[Oo]bj/
+
+# ---- IDE / tooling ----
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# ---- Generated project files ----
+# Unity regenerates its own; keep the server's.
+*.csproj
+*.unityproj
+!Server/**/*.csproj
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
