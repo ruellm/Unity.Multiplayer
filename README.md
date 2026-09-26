@@ -1,2 +1,2 @@
 # Unity.Multiplayer
-Prototype 
+Prototype for Multiplayer game in Unity, Server Client.
