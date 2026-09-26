@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/Client/">
+    <Project Path="Client/Assembly-CSharp-Editor.csproj" />
+    <Project Path="Client/Assembly-CSharp.csproj" />
+  </Folder>
   <Folder Name="/Server/">
     <Project Path="Server/Multiplayer.Server/Multiplayer.Server.csproj" />
   </Folder>

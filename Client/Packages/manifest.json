@@ -1,11 +1,22 @@
 {
+  "scopedRegistries": [
+    {
+      "name": "package.openupm.com",
+      "url": "https://package.openupm.com",
+      "scopes": [
+        "com.revenantx.litenetlib"
+      ]
+    }
+  ],
   "dependencies": {
+    "com.revenantx.litenetlib": "2.1.4",
     "com.unity.ai.navigation": "2.0.14",
     "com.unity.collab-proxy": "2.13.3",
     "com.unity.ide.rider": "3.0.38",
     "com.unity.ide.visualstudio": "2.0.26",
     "com.unity.inputsystem": "1.19.0",
     "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.multiplayer.playmode": "2.0.2",
     "com.unity.render-pipelines.universal": "17.5.0",
     "com.unity.test-framework": "1.7.0",
     "com.unity.timeline": "1.8.12",

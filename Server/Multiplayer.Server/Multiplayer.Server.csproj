@@ -10,4 +10,8 @@
 	<ItemGroup>
 	  <Compile Include="..\..\Client\Assets\Scripts\Protocol\**\*.cs" LinkBase="Protocol" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="LiteNetLib" Version="2.1.4" />
+	</ItemGroup>
 </Project>

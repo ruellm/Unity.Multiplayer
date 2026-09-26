@@ -1,3 +1,4 @@
+using Multiplayer.Protocol;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -10,6 +11,7 @@ namespace Multiplayer.Game
         const int IgnoreRaycastLayer = 2;
 
         Material ringMaterial;
+        NetworkClient network;
         Transform ring;
         Unit selected;
 
@@ -18,21 +20,34 @@ namespace Multiplayer.Game
             get { return selected; }
         }
 
-        public void Initialize(Material material)
+        public void Initialize(Material material, NetworkClient client)
         {
             ringMaterial = material;
+            network = client;
         }
 
         public void HandleClick(WorldHit hit)
         {
             if (hit.Kind == WorldHitKind.Unit)
             {
-                Select(hit.Unit);
+                if (hit.Unit.OwnerId == network.PlayerId)
+                    Select(hit.Unit);
                 return;
             }
 
             if (hit.Kind == WorldHitKind.Ground && selected != null)
-                selected.SetMoveTarget(hit.Point);
+            {
+                MoveRequestMessage request;
+                request.EntityId = selected.EntityId;
+                request.Target = new Vec2(hit.Point.x, hit.Point.z);
+                network.Send(MessageId.MoveRequest, request);
+            }
+        }
+
+        public void OnUnitRemoved(Unit unit)
+        {
+            if (unit == selected)
+                ClearSelection();
         }
 
         public void ClearSelection()
@@ -53,7 +68,6 @@ namespace Multiplayer.Game
 
             selected = unit;
 
-            // The ring lives under the selected unit, so it is gone if that unit was destroyed.
             if (ring == null)
                 ring = CreateRing();
 

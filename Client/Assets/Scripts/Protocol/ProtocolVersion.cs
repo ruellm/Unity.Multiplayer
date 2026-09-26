@@ -1,5 +1,3 @@
-using UnityEngine;
-
 namespace Multiplayer.Protocol
 {
     public static class ProtocolVersion

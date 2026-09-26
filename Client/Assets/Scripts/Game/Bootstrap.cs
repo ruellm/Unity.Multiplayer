@@ -1,3 +1,4 @@
+using Multiplayer.Protocol;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -11,20 +12,29 @@ namespace Multiplayer.Game
     {
         const string LitShaderName = "Universal Render Pipeline/Lit";
         const string UnlitShaderName = "Universal Render Pipeline/Unlit";
+        const string UiFontName = "LegacyRuntime.ttf";
         const float GroundSize = 100f;
         const float PlaneMeshSize = 10f;
         const int RingTextureSize = 128;
 
         static readonly Color GroundColor = new Color(0.32f, 0.42f, 0.3f);
-        static readonly Color LocalPlayerColor = new Color(0.2f, 0.45f, 0.9f);
         static readonly Color RingColor = new Color(0.3f, 1f, 0.4f);
+        static readonly Color UiTextColor = new Color(0.1f, 0.1f, 0.1f);
 
         WorldInput worldInput;
         PlacementController placement;
         SelectionController selection;
+        NetworkClient network;
+        WorldView worldView;
+        readonly PlayerRoster roster = new PlayerRoster();
+        Button addButton;
+        Text statusText;
+        int shownEntityCount = -1;
 
         void Awake()
         {
+            Application.runInBackground = true;
+            
             Shader litShader = FindShader(LitShaderName);
             Shader unlitShader = FindShader(UnlitShaderName);
             if (litShader == null || unlitShader == null)
@@ -41,23 +51,46 @@ namespace Multiplayer.Game
             BuildGround(groundMaterial);
             Camera worldCamera = BuildCamera();
             BuildEventSystem();
-            Button addButton = BuildUi();
+            BuildUi(out addButton, out statusText);
+            addButton.interactable = false;
 
             worldInput = gameObject.AddComponent<WorldInput>();
             placement = gameObject.AddComponent<PlacementController>();
             selection = gameObject.AddComponent<SelectionController>();
+            network = gameObject.AddComponent<NetworkClient>();
+            worldView = gameObject.AddComponent<WorldView>();
 
             worldInput.Initialize(worldCamera);
-            placement.Initialize(addButton, unitMaterial, LocalPlayerColor);
-            selection.Initialize(ringMaterial);
+            placement.Initialize(addButton, network);
+            selection.Initialize(ringMaterial, network);
+            worldView.Initialize(unitMaterial, roster);
 
             worldInput.Clicked += RouteClick;
+            worldView.EntityRemoved += selection.OnUnitRemoved;
+            network.StateChanged += OnNetworkStateChanged;
+            network.Welcomed += OnWelcomed;
+            network.PlayerJoined += roster.Add;
+            network.PlayerLeft += roster.Remove;
+            network.SnapshotReceived += OnSnapshot;
+            RefreshStatus();
         }
 
         void OnDestroy()
         {
             if (worldInput != null)
                 worldInput.Clicked -= RouteClick;
+
+            if (worldView != null && selection != null)
+                worldView.EntityRemoved -= selection.OnUnitRemoved;
+
+            if (network != null)
+            {
+                network.StateChanged -= OnNetworkStateChanged;
+                network.Welcomed -= OnWelcomed;
+                network.PlayerJoined -= roster.Add;
+                network.PlayerLeft -= roster.Remove;
+                network.SnapshotReceived -= OnSnapshot;
+            }
         }
 
         // Only place that decides what a world click means.
@@ -76,6 +109,42 @@ namespace Multiplayer.Game
                 placement.HandleClick(hit);
             else
                 selection.HandleClick(hit);
+        }
+
+        void OnNetworkStateChanged(NetConnectionState state)
+        {
+            if (state != NetConnectionState.Connected)
+            {
+                placement.Cancel();
+                addButton.interactable = false;
+                worldView.Clear();
+                roster.Clear();
+            }
+
+            RefreshStatus();
+        }
+
+        void OnWelcomed()
+        {
+            addButton.interactable = true;
+            RefreshStatus();
+        }
+
+        void OnSnapshot(WorldSnapshotMessage snapshot)
+        {
+            worldView.Apply(snapshot);
+            if (worldView.EntityCount != shownEntityCount)
+                RefreshStatus();
+        }
+
+        void RefreshStatus()
+        {
+            shownEntityCount = worldView.EntityCount;
+            string status = network.State + " " + network.Endpoint;
+            if (network.IsWelcomed)
+                status += ", Player " + network.PlayerId;
+            status += ", Entities " + shownEntityCount;
+            statusText.text = status;
         }
 
         static Shader FindShader(string shaderName)
@@ -181,7 +250,7 @@ namespace Multiplayer.Game
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
         }
 
-        static Button BuildUi()
+        static void BuildUi(out Button addButton, out Text statusText)
         {
             int uiLayer = LayerMask.NameToLayer("UI");
 
@@ -195,10 +264,16 @@ namespace Multiplayer.Game
             scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
 
+            addButton = BuildAddButton(canvasObject.transform, uiLayer);
+            statusText = BuildStatusText(canvasObject.transform, uiLayer);
+        }
+
+        static Button BuildAddButton(Transform canvas, int uiLayer)
+        {
             GameObject buttonObject = new GameObject("Add Cube Button");
             buttonObject.layer = uiLayer;
             RectTransform buttonRect = buttonObject.AddComponent<RectTransform>();
-            buttonRect.SetParent(canvasObject.transform, false);
+            buttonRect.SetParent(canvas, false);
             buttonRect.anchorMin = new Vector2(0f, 1f);
             buttonRect.anchorMax = new Vector2(0f, 1f);
             buttonRect.pivot = new Vector2(0f, 1f);
@@ -209,24 +284,44 @@ namespace Multiplayer.Game
             Button button = buttonObject.AddComponent<Button>();
             button.targetGraphic = buttonImage;
 
-            GameObject labelObject = new GameObject("Label");
-            labelObject.layer = uiLayer;
-            RectTransform labelRect = labelObject.AddComponent<RectTransform>();
-            labelRect.SetParent(buttonRect, false);
+            Text label = CreateText(buttonRect, uiLayer, "Label", 26, TextAnchor.MiddleCenter);
+            label.text = "Add Cube";
+            RectTransform labelRect = label.rectTransform;
             labelRect.anchorMin = Vector2.zero;
             labelRect.anchorMax = Vector2.one;
             labelRect.offsetMin = Vector2.zero;
             labelRect.offsetMax = Vector2.zero;
 
-            Text label = labelObject.AddComponent<Text>();
-            label.text = "Add Cube";
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            label.fontSize = 26;
-            label.alignment = TextAnchor.MiddleCenter;
-            label.color = new Color(0.1f, 0.1f, 0.1f);
-            label.raycastTarget = false;
-
             return button;
+        }
+
+        static Text BuildStatusText(Transform canvas, int uiLayer)
+        {
+            Text status = CreateText(canvas, uiLayer, "Status", 22, TextAnchor.UpperRight);
+            RectTransform rect = status.rectTransform;
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-20f, -20f);
+            rect.sizeDelta = new Vector2(600f, 32f);
+            status.color = Color.white;
+            return status;
+        }
+
+        static Text CreateText(Transform parent, int uiLayer, string objectName, int fontSize, TextAnchor alignment)
+        {
+            GameObject textObject = new GameObject(objectName);
+            textObject.layer = uiLayer;
+            RectTransform rect = textObject.AddComponent<RectTransform>();
+            rect.SetParent(parent, false);
+
+            Text text = textObject.AddComponent<Text>();
+            text.font = Resources.GetBuiltinResource<Font>(UiFontName);
+            text.fontSize = fontSize;
+            text.alignment = alignment;
+            text.color = UiTextColor;
+            text.raycastTarget = false;
+            return text;
         }
     }
 }

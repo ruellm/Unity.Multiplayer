@@ -8,6 +8,9 @@ namespace Multiplayer.Game
         Material bodyMaterial;
         Color ownerColor = Color.white;
 
+        public int EntityId;
+        public int OwnerId;
+
         public Color OwnerColor
         {
             get { return ownerColor; }
@@ -16,20 +19,6 @@ namespace Multiplayer.Game
                 ownerColor = value;
                 ApplyColor();
             }
-        }
-
-        public bool HasMoveTarget { get; private set; }
-        public Vector3 MoveTarget { get; private set; }
-
-        public void SetMoveTarget(Vector3 target)
-        {
-            MoveTarget = target;
-            HasMoveTarget = true;
-        }
-
-        public void ClearMoveTarget()
-        {
-            HasMoveTarget = false;
         }
 
         void Awake()
