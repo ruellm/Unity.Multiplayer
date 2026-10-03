@@ -16,6 +16,8 @@ namespace Multiplayer.Game
         public UnitType UnitType;
         public ActionState ActionState;
         public int TargetEntityId;
+        public Vec2 Position;
+        public UnitVisual Visual;
 
         public int Health
         {

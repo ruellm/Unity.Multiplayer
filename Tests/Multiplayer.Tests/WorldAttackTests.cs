@@ -12,6 +12,7 @@ namespace Multiplayer.Tests
         const int PlayerB = 2;
 
         readonly World world = new World();
+        uint tick;
 
         static float Distance(Entity a, Entity b)
         {
@@ -23,7 +24,7 @@ namespace Multiplayer.Tests
         void Run(int ticks)
         {
             for (int i = 0; i < ticks; i++)
-                world.Integrate(Dt);
+                world.Integrate(++tick, Dt);
         }
 
         [Fact]
@@ -103,7 +104,7 @@ namespace Multiplayer.Tests
             int chasingTicks = 0;
             for (int i = 0; i < 400; i++)
             {
-                world.Integrate(Dt);
+                world.Integrate(++tick, Dt);
                 if (attacker.ActionState == ActionState.MovingToAttack)
                     chasingTicks++;
 

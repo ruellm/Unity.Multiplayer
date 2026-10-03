@@ -35,6 +35,7 @@ namespace Multiplayer.Tests
         {
             Assert.False(clock.Advance(1f));
             Assert.Equal(0f, clock.RenderTick);
+            Assert.Equal(0u, clock.StateTick);
             Assert.False(clock.HasReached(1));
 
             EntityState state;
@@ -115,6 +116,7 @@ namespace Multiplayer.Tests
 
             Assert.InRange(XOf(1), 11.5f - Tolerance, 11.5f + Tolerance);
             Assert.InRange(clock.RenderTick, 11.5f - Tolerance, 11.5f + Tolerance);
+            Assert.Equal(10u, clock.StateTick);
             Assert.True(clock.HasReached(11));
             Assert.False(clock.HasReached(12));
         }
@@ -128,6 +130,7 @@ namespace Multiplayer.Tests
 
             Assert.Equal(1f, XOf(1));
             Assert.Equal(11f, clock.RenderTick);
+            Assert.Equal(11u, clock.StateTick);
             Assert.True(clock.HasReached(11));
         }
 
@@ -184,6 +187,7 @@ namespace Multiplayer.Tests
             Assert.Equal(0, buffer.Count);
             Assert.False(clock.HasReached(10));
             Assert.Equal(0f, clock.RenderTick);
+            Assert.Equal(0u, clock.StateTick);
             Assert.True(buffer.Push(Snapshots.At(1, 7f), 200f));
 
             clock.Advance(200f + Delay);

@@ -15,6 +15,7 @@ namespace Multiplayer.Game
             public ActionState ActionState;
             public int TargetEntityId;
             public int Health;
+            public int TicksUntilShot;
         }
 
         const int FontSize = 15;
@@ -75,7 +76,10 @@ namespace Multiplayer.Game
                     labels[unit.EntityId] = label;
                     Write(label, unit);
                 }
-                else if (label.ActionState != unit.ActionState || label.TargetEntityId != unit.TargetEntityId || label.Health != unit.Health)
+                else if (label.ActionState != unit.ActionState
+                    || label.TargetEntityId != unit.TargetEntityId
+                    || label.Health != unit.Health
+                    || label.TicksUntilShot != ShownTicksUntilShot(unit))
                 {
                     Write(label, unit);
                 }
@@ -106,11 +110,29 @@ namespace Multiplayer.Game
             label.ActionState = unit.ActionState;
             label.TargetEntityId = unit.TargetEntityId;
             label.Health = unit.Health;
+            label.TicksUntilShot = ShownTicksUntilShot(unit);
 
             string target = unit.TargetEntityId != 0 ? "#" + unit.TargetEntityId : "none";
-            label.Text.text = "#" + unit.EntityId + " " + unit.UnitType + " P" + unit.OwnerId
+            string text = "#" + unit.EntityId + " " + unit.UnitType + " P" + unit.OwnerId
                 + "\n" + unit.ActionState + ", target " + target
                 + "\nHP " + unit.Health + "/" + UnitDefs.Get(unit.UnitType).MaxHealth;
+
+            // The schedule is a function of the tick alone, so two clients reading different numbers
+            // here are simply drawing different ticks at that moment.
+            if (unit.Visual.CanFire)
+            {
+                text += label.TicksUntilShot >= 0
+                    ? "\nfire in " + label.TicksUntilShot + "/" + unit.Visual.Firing.CooldownTicks + " ticks"
+                    : "\nfire off";
+            }
+
+            label.Text.text = text;
+        }
+
+        static int ShownTicksUntilShot(Unit unit)
+        {
+            FiringPhase firing = unit.Visual.Firing;
+            return firing.Active ? firing.TicksUntilShot : -1;
         }
 
         Label CreateLabel()

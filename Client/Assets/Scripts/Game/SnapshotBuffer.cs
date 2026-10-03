@@ -21,6 +21,7 @@ namespace Multiplayer.Game
         Sample to;
         float blend;
         float ticksBehindNewest;
+        uint resolvedTick;
 
         public int Count
         {
@@ -42,6 +43,12 @@ namespace Multiplayer.Game
         public float TicksBehindNewest
         {
             get { return ticksBehindNewest; }
+        }
+
+        // Tick of the sample the discrete fields are read from at the last resolved render point.
+        public uint ResolvedTick
+        {
+            get { return resolvedTick; }
         }
 
         public bool Push(WorldSnapshotMessage snapshot, float receiveTime)
@@ -79,6 +86,7 @@ namespace Multiplayer.Game
             from = null;
             to = null;
             ticksBehindNewest = 0f;
+            resolvedTick = 0;
         }
 
         public bool Resolve(float renderTime)
@@ -86,6 +94,7 @@ namespace Multiplayer.Game
             from = null;
             to = null;
             ticksBehindNewest = 0f;
+            resolvedTick = 0;
             if (samples.Count == 0)
                 return false;
 
@@ -95,6 +104,7 @@ namespace Multiplayer.Game
 
             uint newestTick = NewestTick;
             from = samples[index];
+            resolvedTick = from.Tick;
             if (index == samples.Count - 1 || renderTime <= from.Time)
             {
                 // Past the newest sample or before the oldest: hold, never extrapolate.

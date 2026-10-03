@@ -98,12 +98,14 @@ namespace Multiplayer.Game
             if (ring == null)
                 ring = CreateRing();
 
+            // Sized and placed from the unit root and the body's own scale, not its bounds, which
+            // now shift as the body bobs, tilts and turns.
             Transform unitTransform = unit.transform;
-            Bounds bounds = unit.Body.bounds;
-            float diameter = Mathf.Max(bounds.size.x, bounds.size.z) * RingScale;
+            Vector3 size = unit.Body.transform.localScale;
+            float diameter = Mathf.Max(size.x, size.z) * RingScale;
 
             ring.SetParent(unitTransform, true);
-            ring.position = new Vector3(unitTransform.position.x, bounds.min.y + RingLift, unitTransform.position.z);
+            ring.position = unitTransform.position + Vector3.up * RingLift;
             ring.localScale = new Vector3(diameter, diameter, 1f);
             ring.gameObject.SetActive(true);
 

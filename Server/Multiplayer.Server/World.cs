@@ -80,7 +80,7 @@ namespace Multiplayer.Server
             entity.HasTarget = false;
         }
 
-        public void Integrate(float dt)
+        public void Integrate(uint tick, float dt)
         {
             foreach (Entity entity in entities.Values)
             {
@@ -97,6 +97,12 @@ namespace Multiplayer.Server
                     if (dx * dx + dz * dz <= def.Range * def.Range)
                     {
                         entity.ActionState = ActionState.Attacking;
+                        if (entity.Health > 0
+                            && target.Health > 0
+                            && AttackSchedule.Fires(tick, entity.EntityId, AttackSchedule.CooldownTicks(entity.UnitType)))
+                        {
+                            target.Health = Math.Max(0, target.Health - def.Damage);
+                        }
                         continue;
                     }
 

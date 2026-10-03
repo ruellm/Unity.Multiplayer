@@ -138,6 +138,7 @@ namespace Multiplayer.Tests
                     Assert.Equal(Snapshots.TargetAt(expected), state.TargetEntityId);
                     Assert.Equal(Snapshots.UnitTypeAt(expected), state.UnitType);
                     Assert.True(clock.HasReached(expected));
+                    Assert.Equal(expected, clock.StateTick);
 
                     checkedFrames++;
                 });

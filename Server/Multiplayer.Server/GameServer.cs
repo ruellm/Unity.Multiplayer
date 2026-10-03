@@ -81,7 +81,7 @@ namespace Multiplayer.Server
         {
             tick++;
             net.PollEvents();
-            world.Integrate(FixedDt);
+            world.Integrate(tick, FixedDt);
             BroadcastSnapshot();
         }
 

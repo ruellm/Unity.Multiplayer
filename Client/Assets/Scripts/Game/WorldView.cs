@@ -12,6 +12,8 @@ namespace Multiplayer.Game
         static readonly Vector3 StructureSize = new Vector3(3f, 1f, 3f);
         static readonly Vector3 SoldierSize = new Vector3(0.8f, 0.8f, 0.8f);
         static readonly Vector3 TankSize = new Vector3(1.8f, 0.6f, 1.3f);
+        static readonly Vector3 BarrelSize = new Vector3(0.16f, 0.16f, 0.6f);
+        const float BarrelHeight = 0.2f;
 
         readonly Dictionary<int, Unit> units = new Dictionary<int, Unit>();
         readonly HashSet<int> seen = new HashSet<int>();
@@ -21,7 +23,9 @@ namespace Multiplayer.Game
         RenderClock clock;
 
         Material unitMaterial;
+        Material barrelMaterial;
         Material healthBarMaterial;
+        Material tracerMaterial;
         PlayerRoster roster;
         Camera worldCamera;
 
@@ -53,10 +57,12 @@ namespace Multiplayer.Game
             clock = new RenderClock(buffer);
         }
 
-        public void Initialize(Material unit, Material healthBar, PlayerRoster playerRoster, Camera camera)
+        public void Initialize(Material unit, Material barrel, Material healthBar, Material tracer, PlayerRoster playerRoster, Camera camera)
         {
             unitMaterial = unit;
+            barrelMaterial = barrel;
             healthBarMaterial = healthBar;
+            tracerMaterial = tracer;
             roster = playerRoster;
             worldCamera = camera;
         }
@@ -117,7 +123,7 @@ namespace Multiplayer.Game
                     changed = true;
                 }
 
-                unit.transform.position = ToWorld(state.Position);
+                unit.Position = state.Position;
                 unit.SetHealth(state.Health);
                 unit.ActionState = (ActionState)state.ActionState;
                 unit.TargetEntityId = state.TargetEntityId;
@@ -138,6 +144,10 @@ namespace Multiplayer.Game
                 changed = true;
             }
 
+            // After every unit holds this frame's state, so a visual can read its target's.
+            foreach (Unit unit in units.Values)
+                unit.Visual.Refresh(clock, this);
+
             if (changed)
             {
                 Action handler = EntitiesChanged;
@@ -153,7 +163,6 @@ namespace Multiplayer.Game
 
             // Unscaled root so the health bar and selection ring are not skewed by the body's scale.
             GameObject root = new GameObject("Entity " + state.EntityId + " " + unitType);
-            root.transform.position = ToWorld(state.Position);
 
             GameObject body = GameObject.CreatePrimitive(PrimitiveType.Cube);
             body.name = "Body";
@@ -169,9 +178,38 @@ namespace Multiplayer.Game
             unit.EntityId = state.EntityId;
             unit.OwnerId = state.OwnerId;
             unit.UnitType = unitType;
+            unit.Position = state.Position;
             unit.Initialize(bodyRenderer, bar);
             unit.OwnerColor = roster.GetColor(state.OwnerId);
+
+            Transform muzzle = unitType != UnitType.Structure ? CreateBarrel(body.transform, size) : null;
+            unit.Visual = root.AddComponent<UnitVisual>();
+            unit.Visual.Initialize(unit, body.transform, muzzle, tracerMaterial, clock.StateTick);
             return unit;
+        }
+
+        // The barrel is what makes facing readable on an otherwise symmetric box.
+        Transform CreateBarrel(Transform body, Vector3 bodySize)
+        {
+            GameObject barrel = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            barrel.name = "Barrel";
+
+            Collider barrelCollider = barrel.GetComponent<Collider>();
+            barrelCollider.enabled = false;
+            Destroy(barrelCollider);
+
+            // Divided by the body's scale so the barrel keeps its world size under the non-uniform parent.
+            float length = BarrelSize.z / bodySize.z;
+            Transform barrelTransform = barrel.transform;
+            barrelTransform.SetParent(body, false);
+            barrelTransform.localScale = new Vector3(BarrelSize.x / bodySize.x, BarrelSize.y / bodySize.y, length);
+            barrelTransform.localPosition = new Vector3(0f, BarrelHeight, 0.5f + length * 0.25f);
+            barrel.GetComponent<Renderer>().sharedMaterial = barrelMaterial;
+
+            GameObject muzzle = new GameObject("Muzzle");
+            muzzle.transform.SetParent(body, false);
+            muzzle.transform.localPosition = new Vector3(0f, BarrelHeight, 0.5f + length * 0.75f);
+            return muzzle.transform;
         }
 
         void Remove(int entityId)
@@ -200,11 +238,6 @@ namespace Multiplayer.Game
                 default:
                     return SoldierSize;
             }
-        }
-
-        static Vector3 ToWorld(Vec2 position)
-        {
-            return new Vector3(position.X, 0f, position.Z);
         }
     }
 }

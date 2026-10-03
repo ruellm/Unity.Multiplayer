@@ -11,6 +11,7 @@ namespace Multiplayer.Game
         bool resolved;
         uint newestTick;
         float ticksBehindNewest;
+        uint stateTick;
 
         public RenderClock(SnapshotBuffer snapshotBuffer)
         {
@@ -32,6 +33,13 @@ namespace Multiplayer.Game
             get { return resolved ? newestTick - ticksBehindNewest : 0f; }
         }
 
+        // Tick of the snapshot that discrete state is currently drawn from. Whole ticks only, so
+        // anything counted against it steps exactly when that state does.
+        public uint StateTick
+        {
+            get { return stateTick; }
+        }
+
         // Resolves the buffer at the new render time, so positions read from it afterwards and the
         // tick reported here come from one bracketing. Both stay fixed until the next Advance.
         public bool Advance(float time)
@@ -40,6 +48,7 @@ namespace Multiplayer.Game
             resolved = buffer.Resolve(RenderTime);
             newestTick = buffer.NewestTick;
             ticksBehindNewest = buffer.TicksBehindNewest;
+            stateTick = buffer.ResolvedTick;
             return resolved;
         }
 
@@ -57,6 +66,7 @@ namespace Multiplayer.Game
             resolved = false;
             newestTick = 0;
             ticksBehindNewest = 0f;
+            stateTick = 0;
         }
     }
 }

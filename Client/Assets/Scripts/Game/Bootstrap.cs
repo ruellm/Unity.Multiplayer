@@ -21,6 +21,7 @@ namespace Multiplayer.Game
         static readonly Color GroundColor = new Color(0.32f, 0.42f, 0.3f);
         static readonly Color RingColor = new Color(0.3f, 1f, 0.4f);
         static readonly Color AttackLineColor = new Color(1f, 0.25f, 0.2f);
+        static readonly Color BarrelColor = new Color(0.15f, 0.15f, 0.17f);
         static readonly Color UiTextColor = new Color(0.1f, 0.1f, 0.1f);
         static readonly Vector2 ButtonSize = new Vector2(240f, 56f);
 
@@ -51,6 +52,8 @@ namespace Multiplayer.Game
             Material ringMaterial = CreateRingMaterial(unlitShader);
             Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
             Material attackLineMaterial = CreateMaterial(unlitShader, "Attack Line", AttackLineColor);
+            Material barrelMaterial = CreateMaterial(litShader, "Barrel", BarrelColor);
+            Material tracerMaterial = CreateTracerMaterial(unlitShader);
 
             BuildLight();
             BuildGround(groundMaterial);
@@ -75,7 +78,7 @@ namespace Multiplayer.Game
             placement.Initialize(placeButton, network);
             selection.Initialize(ringMaterial, attackLineMaterial, network, worldView);
             production.Initialize(productionPanel, soldierButton, tankButton, selection, network);
-            worldView.Initialize(unitMaterial, healthBarMaterial, roster, worldCamera);
+            worldView.Initialize(unitMaterial, barrelMaterial, healthBarMaterial, tracerMaterial, roster, worldCamera);
             debugOverlay.Initialize(debugOverlayRoot, statusText.font, worldCamera, worldView);
 
             worldInput.Clicked += RouteClick;
@@ -183,6 +186,19 @@ namespace Multiplayer.Game
             material.SetFloat("_Cutoff", 0.5f);
             material.EnableKeyword("_ALPHATEST_ON");
             material.renderQueue = (int)RenderQueue.AlphaTest;
+            return material;
+        }
+
+        static Material CreateTracerMaterial(Shader unlitShader)
+        {
+            Material material = CreateMaterial(unlitShader, "Tracer", Color.white);
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.renderQueue = (int)RenderQueue.Transparent;
             return material;
         }
 
