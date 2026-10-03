@@ -11,6 +11,7 @@ namespace Multiplayer.Protocol
         MoveRequest = 11,
         PlaceStructureRequest = 12,
         BuildUnitRequest = 13,
+        AttackRequest = 14,
 
         WorldSnapshot = 20
     }

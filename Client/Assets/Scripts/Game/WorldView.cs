@@ -16,6 +16,7 @@ namespace Multiplayer.Game
         readonly Dictionary<int, Unit> units = new Dictionary<int, Unit>();
         readonly HashSet<int> seen = new HashSet<int>();
         readonly List<int> removeScratch = new List<int>();
+        readonly List<EntityState> resolved = new List<EntityState>();
         readonly SnapshotBuffer buffer = new SnapshotBuffer();
         RenderClock clock;
 
@@ -25,6 +26,7 @@ namespace Multiplayer.Game
         Camera worldCamera;
 
         public event Action<Unit> EntityRemoved;
+        public event Action EntitiesChanged;
 
         public int EntityCount
         {
@@ -34,6 +36,16 @@ namespace Multiplayer.Game
         public RenderClock Clock
         {
             get { return clock; }
+        }
+
+        public Dictionary<int, Unit>.ValueCollection Units
+        {
+            get { return units.Values; }
+        }
+
+        public bool TryGetUnit(int entityId, out Unit unit)
+        {
+            return units.TryGetValue(entityId, out unit);
         }
 
         void Awake()
@@ -65,35 +77,11 @@ namespace Multiplayer.Game
             return count;
         }
 
+        // Snapshots are only buffered here. Units are created, updated and removed in Update, from
+        // the state resolved at the render clock, so everything drawn comes from one point in time.
         public void Apply(WorldSnapshotMessage snapshot)
         {
-            if (!buffer.Push(snapshot, Time.time))
-                return;
-
-            seen.Clear();
-
-            List<EntityState> states = snapshot.Entities;
-            for (int i = 0; i < states.Count; i++)
-            {
-                EntityState state = states[i];
-                seen.Add(state.EntityId);
-
-                Unit unit;
-                if (units.TryGetValue(state.EntityId, out unit))
-                    unit.SetHealth(state.Health);
-                else
-                    units[state.EntityId] = Create(state);
-            }
-
-            removeScratch.Clear();
-            foreach (int id in units.Keys)
-            {
-                if (!seen.Contains(id))
-                    removeScratch.Add(id);
-            }
-
-            for (int i = 0; i < removeScratch.Count; i++)
-                Remove(removeScratch[i]);
+            buffer.Push(snapshot, Time.time);
         }
 
         public void Clear()
@@ -112,11 +100,49 @@ namespace Multiplayer.Game
             if (!clock.Advance(Time.time))
                 return;
 
-            foreach (Unit unit in units.Values)
+            buffer.GetResolved(resolved);
+            seen.Clear();
+            bool changed = false;
+
+            for (int i = 0; i < resolved.Count; i++)
             {
-                Vec2 position;
-                if (buffer.TryGetPosition(unit.EntityId, out position))
-                    unit.transform.position = ToWorld(position);
+                EntityState state = resolved[i];
+                seen.Add(state.EntityId);
+
+                Unit unit;
+                if (!units.TryGetValue(state.EntityId, out unit))
+                {
+                    unit = Create(state);
+                    units[state.EntityId] = unit;
+                    changed = true;
+                }
+
+                unit.transform.position = ToWorld(state.Position);
+                unit.SetHealth(state.Health);
+                unit.ActionState = (ActionState)state.ActionState;
+                unit.TargetEntityId = state.TargetEntityId;
+            }
+
+            if (units.Count != resolved.Count)
+            {
+                removeScratch.Clear();
+                foreach (int id in units.Keys)
+                {
+                    if (!seen.Contains(id))
+                        removeScratch.Add(id);
+                }
+
+                for (int i = 0; i < removeScratch.Count; i++)
+                    Remove(removeScratch[i]);
+
+                changed = true;
+            }
+
+            if (changed)
+            {
+                Action handler = EntitiesChanged;
+                if (handler != null)
+                    handler();
             }
         }
 
@@ -145,7 +171,6 @@ namespace Multiplayer.Game
             unit.UnitType = unitType;
             unit.Initialize(bodyRenderer, bar);
             unit.OwnerColor = roster.GetColor(state.OwnerId);
-            unit.SetHealth(state.Health);
             return unit;
         }
 

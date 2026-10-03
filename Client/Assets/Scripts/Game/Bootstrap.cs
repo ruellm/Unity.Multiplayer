@@ -20,6 +20,7 @@ namespace Multiplayer.Game
 
         static readonly Color GroundColor = new Color(0.32f, 0.42f, 0.3f);
         static readonly Color RingColor = new Color(0.3f, 1f, 0.4f);
+        static readonly Color AttackLineColor = new Color(1f, 0.25f, 0.2f);
         static readonly Color UiTextColor = new Color(0.1f, 0.1f, 0.1f);
         static readonly Vector2 ButtonSize = new Vector2(240f, 56f);
 
@@ -27,13 +28,11 @@ namespace Multiplayer.Game
         PlacementController placement;
         SelectionController selection;
         ProductionController production;
+        DebugOverlay debugOverlay;
         NetworkClient network;
         WorldView worldView;
         readonly PlayerRoster roster = new PlayerRoster();
         Text statusText;
-        int shownEntityCount = -1;
-        int shownOwnedCount = -1;
-        bool shownHasStructure;
 
         void Awake()
         {
@@ -51,6 +50,7 @@ namespace Multiplayer.Game
             Material unitMaterial = CreateMaterial(litShader, "Unit", Color.white);
             Material ringMaterial = CreateRingMaterial(unlitShader);
             Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
+            Material attackLineMaterial = CreateMaterial(unlitShader, "Attack Line", AttackLineColor);
 
             BuildLight();
             BuildGround(groundMaterial);
@@ -60,7 +60,8 @@ namespace Multiplayer.Game
             GameObject productionPanel;
             Button soldierButton;
             Button tankButton;
-            BuildUi(out placeButton, out productionPanel, out soldierButton, out tankButton, out statusText);
+            RectTransform debugOverlayRoot;
+            BuildUi(out placeButton, out productionPanel, out soldierButton, out tankButton, out statusText, out debugOverlayRoot);
 
             worldInput = gameObject.AddComponent<WorldInput>();
             placement = gameObject.AddComponent<PlacementController>();
@@ -68,20 +69,23 @@ namespace Multiplayer.Game
             production = gameObject.AddComponent<ProductionController>();
             network = gameObject.AddComponent<NetworkClient>();
             worldView = gameObject.AddComponent<WorldView>();
+            debugOverlay = gameObject.AddComponent<DebugOverlay>();
 
             worldInput.Initialize(worldCamera);
             placement.Initialize(placeButton, network);
-            selection.Initialize(ringMaterial, network);
+            selection.Initialize(ringMaterial, attackLineMaterial, network, worldView);
             production.Initialize(productionPanel, soldierButton, tankButton, selection, network);
             worldView.Initialize(unitMaterial, healthBarMaterial, roster, worldCamera);
+            debugOverlay.Initialize(debugOverlayRoot, statusText.font, worldCamera, worldView);
 
             worldInput.Clicked += RouteClick;
             worldView.EntityRemoved += selection.OnUnitRemoved;
+            worldView.EntitiesChanged += RefreshStatus;
             network.StateChanged += OnNetworkStateChanged;
             network.Welcomed += OnWelcomed;
             network.PlayerJoined += roster.Add;
             network.PlayerLeft += roster.Remove;
-            network.SnapshotReceived += OnSnapshot;
+            network.SnapshotReceived += worldView.Apply;
             RefreshStatus();
         }
 
@@ -99,18 +103,18 @@ namespace Multiplayer.Game
                 network.Welcomed -= OnWelcomed;
                 network.PlayerJoined -= roster.Add;
                 network.PlayerLeft -= roster.Remove;
-                network.SnapshotReceived -= OnSnapshot;
+                network.SnapshotReceived -= worldView.Apply;
             }
         }
 
         // Only place that decides what a world click means.
         void RouteClick(WorldHit hit)
         {
-            if (hit.Kind == WorldHitKind.Cancel)
+            if (hit.Kind == WorldHitKind.Cancel || hit.Button == WorldButton.Secondary)
             {
                 if (placement.IsArmed)
                     placement.Cancel();
-                else
+                else if (hit.Kind != WorldHitKind.Unit || !selection.TryAttack(hit.Unit))
                     selection.ClearSelection();
                 return;
             }
@@ -137,32 +141,21 @@ namespace Multiplayer.Game
             RefreshStatus();
         }
 
-        void OnSnapshot(WorldSnapshotMessage snapshot)
-        {
-            worldView.Apply(snapshot);
-
-            bool hasStructure;
-            int owned = worldView.CountOwnedBy(network.PlayerId, out hasStructure);
-            if (worldView.EntityCount != shownEntityCount || owned != shownOwnedCount || hasStructure != shownHasStructure)
-                RefreshStatus();
-        }
-
         void RefreshStatus()
         {
-            shownEntityCount = worldView.EntityCount;
-            shownOwnedCount = 0;
-            shownHasStructure = false;
+            int owned = 0;
+            bool hasStructure = false;
             if (network.IsWelcomed)
-                shownOwnedCount = worldView.CountOwnedBy(network.PlayerId, out shownHasStructure);
+                owned = worldView.CountOwnedBy(network.PlayerId, out hasStructure);
 
-            placement.SetAvailable(network.IsWelcomed && !shownHasStructure);
+            placement.SetAvailable(network.IsWelcomed && !hasStructure);
 
             string status = network.State + " " + network.Endpoint;
             if (network.IsWelcomed)
                 status += ", Player " + network.PlayerId;
-            status += ", Entities " + shownEntityCount;
+            status += ", Entities " + worldView.EntityCount;
             if (network.IsWelcomed)
-                status += ", Mine " + shownOwnedCount + ", Structure " + (shownHasStructure ? "placed" : "not placed");
+                status += ", Mine " + owned + ", Structure " + (hasStructure ? "placed" : "not placed");
             statusText.text = status;
         }
 
@@ -269,7 +262,7 @@ namespace Multiplayer.Game
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
         }
 
-        static void BuildUi(out Button placeButton, out GameObject productionPanel, out Button soldierButton, out Button tankButton, out Text statusText)
+        static void BuildUi(out Button placeButton, out GameObject productionPanel, out Button soldierButton, out Button tankButton, out Text statusText, out RectTransform debugOverlayRoot)
         {
             int uiLayer = LayerMask.NameToLayer("UI");
 
@@ -283,6 +276,8 @@ namespace Multiplayer.Game
             scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
 
+            // Built first so the debug labels draw underneath the buttons and status text.
+            debugOverlayRoot = BuildDebugOverlayRoot(canvasObject.transform, uiLayer);
             placeButton = BuildButton(canvasObject.transform, uiLayer, "Place Structure", new Vector2(20f, -20f));
 
             float step = ButtonSize.y + ButtonSpacing;
@@ -292,6 +287,19 @@ namespace Multiplayer.Game
             productionPanel = panel.gameObject;
 
             statusText = BuildStatusText(canvasObject.transform, uiLayer);
+        }
+
+        static RectTransform BuildDebugOverlayRoot(Transform canvas, int uiLayer)
+        {
+            GameObject rootObject = new GameObject("Debug Overlay");
+            rootObject.layer = uiLayer;
+            RectTransform rootRect = rootObject.AddComponent<RectTransform>();
+            rootRect.SetParent(canvas, false);
+            rootRect.anchorMin = Vector2.zero;
+            rootRect.anchorMax = Vector2.one;
+            rootRect.offsetMin = Vector2.zero;
+            rootRect.offsetMax = Vector2.zero;
+            return rootRect;
         }
 
         static RectTransform BuildProductionPanel(Transform canvas, int uiLayer, Vector2 position)

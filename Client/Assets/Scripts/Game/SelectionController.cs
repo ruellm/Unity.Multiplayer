@@ -9,11 +9,15 @@ namespace Multiplayer.Game
     {
         const float RingScale = 1.6f;
         const float RingLift = 0.03f;
+        const float AttackLineWidth = 0.06f;
         const int IgnoreRaycastLayer = 2;
 
         Material ringMaterial;
+        Material attackLineMaterial;
         NetworkClient network;
+        WorldView worldView;
         Transform ring;
+        LineRenderer attackLine;
         Unit selected;
 
         public Unit Selected
@@ -23,10 +27,25 @@ namespace Multiplayer.Game
 
         public event Action<Unit> SelectionChanged;
 
-        public void Initialize(Material material, NetworkClient client)
+        public void Initialize(Material ring, Material line, NetworkClient client, WorldView view)
         {
-            ringMaterial = material;
+            ringMaterial = ring;
+            attackLineMaterial = line;
             network = client;
+            worldView = view;
+        }
+
+        // Ownership is the only thing checked here. Range and every other rule are the server's call.
+        public bool TryAttack(Unit target)
+        {
+            if (selected == null || selected.OwnerId != network.PlayerId || target.OwnerId == network.PlayerId)
+                return false;
+
+            AttackRequestMessage request;
+            request.AttackerId = selected.EntityId;
+            request.TargetEntityId = target.EntityId;
+            network.Send(MessageId.AttackRequest, request);
+            return true;
         }
 
         public void HandleClick(WorldHit hit)
@@ -89,6 +108,45 @@ namespace Multiplayer.Game
             ring.gameObject.SetActive(true);
 
             RaiseSelectionChanged();
+        }
+
+        void LateUpdate()
+        {
+            Unit target = null;
+            bool show = selected != null
+                && selected.TargetEntityId != 0
+                && worldView.TryGetUnit(selected.TargetEntityId, out target);
+
+            if (!show)
+            {
+                if (attackLine != null)
+                    attackLine.enabled = false;
+                return;
+            }
+
+            if (attackLine == null)
+                attackLine = CreateAttackLine();
+
+            attackLine.SetPosition(0, selected.Body.bounds.center);
+            attackLine.SetPosition(1, target.Body.bounds.center);
+            attackLine.enabled = true;
+        }
+
+        LineRenderer CreateAttackLine()
+        {
+            GameObject lineObject = new GameObject("Attack Line");
+            lineObject.layer = IgnoreRaycastLayer;
+            lineObject.transform.SetParent(transform, false);
+
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.sharedMaterial = attackLineMaterial;
+            line.useWorldSpace = true;
+            line.positionCount = 2;
+            line.startWidth = AttackLineWidth;
+            line.endWidth = AttackLineWidth;
+            line.shadowCastingMode = ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            return line;
         }
 
         void RaiseSelectionChanged()

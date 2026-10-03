@@ -99,6 +99,8 @@ namespace Multiplayer.Server
                 state.OwnerId = entity.OwnerId;
                 state.UnitType = (byte)entity.UnitType;
                 state.Health = entity.Health;
+                state.ActionState = (byte)entity.ActionState;
+                state.TargetEntityId = entity.TargetEntityId;
                 state.Position = entity.Position;
                 snapshot.Entities.Add(state);
             }
@@ -185,6 +187,11 @@ namespace Multiplayer.Server
                         BuildUnitRequestMessage build = default;
                         build.Deserialize(reader);
                         HandleBuildUnitRequest(peer, build);
+                        break;
+                    case MessageId.AttackRequest:
+                        AttackRequestMessage attack = default;
+                        attack.Deserialize(reader);
+                        HandleAttackRequest(peer, attack);
                         break;
                     case MessageId.MoveRequest:
                         MoveRequestMessage move = default;
@@ -328,6 +335,56 @@ namespace Multiplayer.Server
             }
 
             world.SetTarget(entity.EntityId, target);
+        }
+
+        void HandleAttackRequest(NetPeer peer, AttackRequestMessage request)
+        {
+            PlayerInfo info;
+            if (!players.TryGet(peer.Id, out info))
+            {
+                Log("Attack rejected: peer " + peer.Id + " is not a registered player");
+                return;
+            }
+
+            Entity attacker;
+            if (!world.TryGet(request.AttackerId, out attacker))
+            {
+                Log("Attack rejected: attacker " + request.AttackerId + " does not exist");
+                return;
+            }
+
+            if (info.PlayerId != attacker.OwnerId)
+            {
+                Log("Attack rejected: player " + info.PlayerId + " does not own attacker " + request.AttackerId + " (owner " + attacker.OwnerId + ")");
+                return;
+            }
+
+            if (request.AttackerId == request.TargetEntityId)
+            {
+                Log("Attack rejected: attacker and target are the same entity " + request.AttackerId);
+                return;
+            }
+
+            if (UnitDefs.Get(attacker.UnitType).Range <= 0f)
+            {
+                Log("Attack rejected: entity " + request.AttackerId + " is a " + attacker.UnitType + " and cannot attack");
+                return;
+            }
+
+            Entity target;
+            if (!world.TryGet(request.TargetEntityId, out target))
+            {
+                Log("Attack rejected: target " + request.TargetEntityId + " does not exist");
+                return;
+            }
+
+            if (target.OwnerId == info.PlayerId)
+            {
+                Log("Attack rejected: player " + info.PlayerId + " owns target " + request.TargetEntityId);
+                return;
+            }
+
+            world.SetAttackTarget(attacker.EntityId, target.EntityId);
         }
 
         void BeginMessage(MessageId id, INetSerializable body)

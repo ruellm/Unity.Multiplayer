@@ -9,7 +9,7 @@ namespace Multiplayer.Game
         {
             public uint Tick;
             public float Time;
-            public readonly Dictionary<int, Vec2> Positions = new Dictionary<int, Vec2>();
+            public readonly Dictionary<int, EntityState> States = new Dictionary<int, EntityState>();
         }
 
         const int Capacity = 8;
@@ -62,10 +62,10 @@ namespace Multiplayer.Game
 
             sample.Tick = snapshot.Tick;
             sample.Time = receiveTime;
-            sample.Positions.Clear();
+            sample.States.Clear();
             List<EntityState> states = snapshot.Entities;
             for (int i = 0; i < states.Count; i++)
-                sample.Positions[states[i].EntityId] = states[i].Position;
+                sample.States[states[i].EntityId] = states[i];
 
             samples.Add(sample);
             return true;
@@ -113,28 +113,45 @@ namespace Multiplayer.Game
             return true;
         }
 
-        public bool TryGetPosition(int entityId, out Vec2 position)
+        // Position is interpolated across the bracket. Everything else is discrete and comes from
+        // the earlier sample, so a change shows only once the render point reaches its snapshot.
+        public bool TryGetState(int entityId, out EntityState state)
         {
-            position = default;
+            state = default;
             if (from == null)
                 return false;
 
             if (to == null)
-                return from.Positions.TryGetValue(entityId, out position);
+                return from.States.TryGetValue(entityId, out state);
 
-            Vec2 end;
-            if (!to.Positions.TryGetValue(entityId, out end))
+            EntityState end;
+            if (!to.States.TryGetValue(entityId, out end))
                 return false;
 
-            Vec2 start;
-            if (!from.Positions.TryGetValue(entityId, out start))
+            if (!from.States.TryGetValue(entityId, out state))
             {
-                position = end;
+                state = end;
                 return true;
             }
 
-            position = new Vec2(start.X + (end.X - start.X) * blend, start.Z + (end.Z - start.Z) * blend);
+            Vec2 start = state.Position;
+            state.Position = new Vec2(start.X + (end.Position.X - start.X) * blend, start.Z + (end.Position.Z - start.Z) * blend);
             return true;
+        }
+
+        public void GetResolved(List<EntityState> results)
+        {
+            results.Clear();
+            if (from == null)
+                return;
+
+            Sample membership = to != null ? to : from;
+            foreach (int entityId in membership.States.Keys)
+            {
+                EntityState state;
+                if (TryGetState(entityId, out state))
+                    results.Add(state);
+            }
         }
     }
 }

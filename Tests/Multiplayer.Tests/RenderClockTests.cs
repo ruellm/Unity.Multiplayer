@@ -19,9 +19,9 @@ namespace Multiplayer.Tests
 
         float XOf(int entityId)
         {
-            Vec2 position;
-            Assert.True(buffer.TryGetPosition(entityId, out position));
-            return position.X;
+            EntityState state;
+            Assert.True(buffer.TryGetState(entityId, out state));
+            return state.Position.X;
         }
 
         void PushTwo()
@@ -37,8 +37,8 @@ namespace Multiplayer.Tests
             Assert.Equal(0f, clock.RenderTick);
             Assert.False(clock.HasReached(1));
 
-            Vec2 position;
-            Assert.False(buffer.TryGetPosition(1, out position));
+            EntityState state;
+            Assert.False(buffer.TryGetState(1, out state));
         }
 
         [Fact]

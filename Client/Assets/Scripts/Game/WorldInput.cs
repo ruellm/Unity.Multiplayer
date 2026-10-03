@@ -13,32 +13,40 @@ namespace Multiplayer.Game
         Cancel
     }
 
+    public enum WorldButton
+    {
+        Primary,
+        Secondary
+    }
+
     public readonly struct WorldHit
     {
         public readonly WorldHitKind Kind;
+        public readonly WorldButton Button;
         public readonly Vector3 Point;
         public readonly Unit Unit;
 
-        WorldHit(WorldHitKind kind, Vector3 point, Unit unit)
+        WorldHit(WorldHitKind kind, WorldButton button, Vector3 point, Unit unit)
         {
             Kind = kind;
+            Button = button;
             Point = point;
             Unit = unit;
         }
 
-        public static WorldHit OnGround(Vector3 point)
+        public static WorldHit OnGround(WorldButton button, Vector3 point)
         {
-            return new WorldHit(WorldHitKind.Ground, point, null);
+            return new WorldHit(WorldHitKind.Ground, button, point, null);
         }
 
-        public static WorldHit OnUnit(Unit unit, Vector3 point)
+        public static WorldHit OnUnit(WorldButton button, Unit unit, Vector3 point)
         {
-            return new WorldHit(WorldHitKind.Unit, point, unit);
+            return new WorldHit(WorldHitKind.Unit, button, point, unit);
         }
 
         public static WorldHit Cancel()
         {
-            return new WorldHit(WorldHitKind.Cancel, Vector3.zero, null);
+            return new WorldHit(WorldHitKind.Cancel, WorldButton.Secondary, Vector3.zero, null);
         }
     }
 
@@ -60,37 +68,62 @@ namespace Multiplayer.Game
             Mouse mouse = Mouse.current;
             Keyboard keyboard = Keyboard.current;
 
-            bool cancelPressed = (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
-                || (mouse != null && mouse.rightButton.wasPressedThisFrame);
-            if (cancelPressed)
+            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
                 Raise(WorldHit.Cancel());
                 return;
             }
 
-            if (mouse == null || worldCamera == null)
+            if (mouse == null)
                 return;
 
-            if (!mouse.leftButton.wasPressedThisFrame)
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                // A right-click that lands on nothing in the world still cancels, as it always has.
+                WorldHit hit;
+                if (IsPointerOverUi() || !TryRaycast(mouse, WorldButton.Secondary, out hit))
+                    hit = WorldHit.Cancel();
+
+                Raise(hit);
+                return;
+            }
+
+            if (!mouse.leftButton.wasPressedThisFrame || IsPointerOverUi())
                 return;
 
-            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-                return;
+            WorldHit primary;
+            if (TryRaycast(mouse, WorldButton.Primary, out primary))
+                Raise(primary);
+        }
+
+        static bool IsPointerOverUi()
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        }
+
+        bool TryRaycast(Mouse mouse, WorldButton button, out WorldHit worldHit)
+        {
+            worldHit = default;
+            if (worldCamera == null)
+                return false;
 
             Ray ray = worldCamera.ScreenPointToRay(mouse.position.ReadValue());
             RaycastHit hit;
             if (!Physics.Raycast(ray, out hit, MaxRayDistance))
-                return;
+                return false;
 
             Unit unit = hit.collider.GetComponentInParent<Unit>();
             if (unit != null)
             {
-                Raise(WorldHit.OnUnit(unit, hit.point));
-                return;
+                worldHit = WorldHit.OnUnit(button, unit, hit.point);
+                return true;
             }
 
-            if (hit.collider.GetComponentInParent<Ground>() != null)
-                Raise(WorldHit.OnGround(hit.point));
+            if (hit.collider.GetComponentInParent<Ground>() == null)
+                return false;
+
+            worldHit = WorldHit.OnGround(button, hit.point);
+            return true;
         }
 
         void Raise(WorldHit hit)

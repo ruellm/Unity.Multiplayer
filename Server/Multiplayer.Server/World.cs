@@ -10,6 +10,8 @@ namespace Multiplayer.Server
         public int OwnerId;
         public UnitType UnitType;
         public int Health;
+        public ActionState ActionState;
+        public int TargetEntityId;
         public Vec2 Position;
         public Vec2 Target;
         public bool HasTarget;
@@ -65,17 +67,52 @@ namespace Multiplayer.Server
 
             entity.Target = target;
             entity.HasTarget = true;
+            entity.TargetEntityId = 0;
+        }
+
+        public void SetAttackTarget(int entityId, int targetEntityId)
+        {
+            Entity entity;
+            if (!entities.TryGetValue(entityId, out entity))
+                return;
+
+            entity.TargetEntityId = targetEntityId;
+            entity.HasTarget = false;
         }
 
         public void Integrate(float dt)
         {
             foreach (Entity entity in entities.Values)
             {
-                if (!entity.HasTarget)
-                    continue;
+                UnitDef def = UnitDefs.Get(entity.UnitType);
 
-                float speed = UnitDefs.Get(entity.UnitType).Speed;
-                entity.Position = MovementMath.Step(entity.Position, entity.Target, speed, dt);
+                Entity target = null;
+                if (entity.TargetEntityId != 0 && !entities.TryGetValue(entity.TargetEntityId, out target))
+                    entity.TargetEntityId = 0;
+
+                if (target != null)
+                {
+                    float dx = target.Position.X - entity.Position.X;
+                    float dz = target.Position.Z - entity.Position.Z;
+                    if (dx * dx + dz * dz <= def.Range * def.Range)
+                    {
+                        entity.ActionState = ActionState.Attacking;
+                        continue;
+                    }
+
+                    entity.ActionState = ActionState.MovingToAttack;
+                    entity.Position = MovementMath.Step(entity.Position, target.Position, def.Speed, dt);
+                    continue;
+                }
+
+                if (!entity.HasTarget)
+                {
+                    entity.ActionState = ActionState.Idle;
+                    continue;
+                }
+
+                entity.ActionState = ActionState.Moving;
+                entity.Position = MovementMath.Step(entity.Position, entity.Target, def.Speed, dt);
                 if (entity.Position.X == entity.Target.X && entity.Position.Z == entity.Target.Z)
                     entity.HasTarget = false;
             }

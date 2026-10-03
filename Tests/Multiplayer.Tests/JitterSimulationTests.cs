@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Multiplayer.Game;
 using Multiplayer.Protocol;
 using Xunit;
@@ -45,8 +46,9 @@ namespace Multiplayer.Tests
                     for (int id = 1; id <= 3; id++)
                     {
                         Vec2 expected;
-                        Vec2 actual;
-                        Assert.Equal(reference.TryGetPosition(id, out expected), buffer.TryGetPosition(id, out actual));
+                        EntityState state;
+                        Assert.Equal(reference.TryGetPosition(id, out expected), buffer.TryGetState(id, out state));
+                        Vec2 actual = state.Position;
                         Assert.Equal(BitConverter.SingleToInt32Bits(expected.X), BitConverter.SingleToInt32Bits(actual.X));
                         Assert.Equal(BitConverter.SingleToInt32Bits(expected.Z), BitConverter.SingleToInt32Bits(actual.Z));
                     }
@@ -74,8 +76,9 @@ namespace Multiplayer.Tests
                     if (!clock.Advance(time))
                         return;
 
-                    Vec2 drawn;
-                    Assert.True(buffer.TryGetPosition(4, out drawn));
+                    EntityState state;
+                    Assert.True(buffer.TryGetState(4, out state));
+                    Vec2 drawn = state.Position;
                     Assert.InRange(clock.RenderTick, drawn.X - Tolerance, drawn.X + Tolerance);
 
                     float whole = (float)Math.Floor(drawn.X);
@@ -92,7 +95,57 @@ namespace Multiplayer.Tests
             Assert.InRange(checkedFrames, Frames / 2, Frames);
         }
 
-        static void Run(int seed, Action<WorldSnapshotMessage, float> receive, Action<float> frame)
+        // Oracle: the newest buffered snapshot received at or before render time, else the oldest buffered.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(5)]
+        public void DiscreteStateComesFromTheSnapshotTheClockHasReached(int seed)
+        {
+            const int BufferCapacity = 8;
+            SnapshotBuffer buffer = new SnapshotBuffer();
+            RenderClock clock = new RenderClock(buffer);
+            List<uint> acceptedTicks = new List<uint>();
+            List<float> acceptedTimes = new List<float>();
+            int checkedFrames = 0;
+
+            Run(seed,
+                (snapshot, time) =>
+                {
+                    if (!buffer.Push(snapshot, time))
+                        return;
+
+                    acceptedTicks.Add(snapshot.Tick);
+                    acceptedTimes.Add(time);
+                },
+                time =>
+                {
+                    if (!clock.Advance(time))
+                        return;
+
+                    int oldest = Math.Max(0, acceptedTicks.Count - BufferCapacity);
+                    int index = acceptedTicks.Count - 1;
+                    while (index > oldest && acceptedTimes[index] > clock.RenderTime)
+                        index--;
+                    uint expected = acceptedTicks[index];
+
+                    EntityState state;
+                    Assert.True(buffer.TryGetState(1, out state));
+                    Assert.Equal((int)expected, state.Health);
+                    Assert.Equal(Snapshots.ActionStateAt(expected), state.ActionState);
+                    Assert.Equal(Snapshots.TargetAt(expected), state.TargetEntityId);
+                    Assert.Equal(Snapshots.UnitTypeAt(expected), state.UnitType);
+                    Assert.True(clock.HasReached(expected));
+
+                    checkedFrames++;
+                });
+
+            Assert.InRange(checkedFrames, Frames / 2, Frames);
+        }
+
+        static void Run(int seed,Action<WorldSnapshotMessage, float> receive, Action<float> frame)
         {
             Random rng = new Random(seed);
             float time = 0f;

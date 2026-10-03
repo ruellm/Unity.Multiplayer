@@ -8,6 +8,8 @@ namespace Multiplayer.Protocol
         public int OwnerId;
         public byte UnitType;
         public int Health;
+        public byte ActionState;
+        public int TargetEntityId;
         public Vec2 Position;
 
         public void Serialize(NetDataWriter writer)
@@ -16,6 +18,8 @@ namespace Multiplayer.Protocol
             writer.Put(OwnerId);
             writer.Put(UnitType);
             writer.Put(Health);
+            writer.Put(ActionState);
+            writer.Put(TargetEntityId);
             Position.Serialize(writer);
         }
 
@@ -25,6 +29,8 @@ namespace Multiplayer.Protocol
             OwnerId = reader.GetInt();
             UnitType = reader.GetByte();
             Health = reader.GetInt();
+            ActionState = reader.GetByte();
+            TargetEntityId = reader.GetInt();
             Position = Vec2.Deserialize(reader);
         }
     }

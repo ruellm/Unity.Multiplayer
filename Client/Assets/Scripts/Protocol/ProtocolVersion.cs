@@ -2,6 +2,6 @@ namespace Multiplayer.Protocol
 {
     public static class ProtocolVersion
     {
-        public const int Current = 2;
+        public const int Current = 3;
     }
 }

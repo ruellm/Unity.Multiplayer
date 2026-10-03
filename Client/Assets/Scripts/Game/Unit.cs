@@ -14,6 +14,8 @@ namespace Multiplayer.Game
         public int EntityId;
         public int OwnerId;
         public UnitType UnitType;
+        public ActionState ActionState;
+        public int TargetEntityId;
 
         public int Health
         {
