@@ -97,6 +97,8 @@ namespace Multiplayer.Server
                 EntityState state;
                 state.EntityId = entity.EntityId;
                 state.OwnerId = entity.OwnerId;
+                state.UnitType = (byte)entity.UnitType;
+                state.Health = entity.Health;
                 state.Position = entity.Position;
                 snapshot.Entities.Add(state);
             }
@@ -105,8 +107,13 @@ namespace Multiplayer.Server
             foreach (NetPeer peer in net)
             {
                 PlayerInfo info;
-                if (players.TryGet(peer.Id, out info))
-                    peer.Send(writer, DeliveryMethod.Sequenced);
+                if (!players.TryGet(peer.Id, out info))
+                    continue;
+
+                // Sequenced cannot fragment and throws past one MTU. Oversized snapshots go on a
+                // fragmenting channel instead; the client drops stale ticks either way.
+                bool fits = writer.Length <= peer.GetMaxSinglePacketSize(DeliveryMethod.Sequenced);
+                peer.Send(writer, fits ? DeliveryMethod.Sequenced : DeliveryMethod.ReliableUnordered);
             }
         }
 
@@ -169,10 +176,15 @@ namespace Multiplayer.Server
                 MessageId id = (MessageId)reader.GetByte();
                 switch (id)
                 {
-                    case MessageId.SpawnRequest:
-                        SpawnRequestMessage request = default;
-                        request.Deserialize(reader);
-                        HandleSpawnRequest(peer, request);
+                    case MessageId.PlaceStructureRequest:
+                        PlaceStructureRequestMessage place = default;
+                        place.Deserialize(reader);
+                        HandlePlaceStructureRequest(peer, place);
+                        break;
+                    case MessageId.BuildUnitRequest:
+                        BuildUnitRequestMessage build = default;
+                        build.Deserialize(reader);
+                        HandleBuildUnitRequest(peer, build);
                         break;
                     case MessageId.MoveRequest:
                         MoveRequestMessage move = default;
@@ -194,12 +206,18 @@ namespace Multiplayer.Server
             }
         }
 
-        void HandleSpawnRequest(NetPeer peer, SpawnRequestMessage request)
+        void HandlePlaceStructureRequest(NetPeer peer, PlaceStructureRequestMessage request)
         {
             PlayerInfo info;
             if (!players.TryGet(peer.Id, out info))
             {
-                Log("Spawn rejected: peer " + peer.Id + " is not a registered player");
+                Log("Place structure rejected: peer " + peer.Id + " is not a registered player");
+                return;
+            }
+
+            if (world.HasStructure(info.PlayerId))
+            {
+                Log("Place structure rejected: player " + info.PlayerId + " already has a structure");
                 return;
             }
 
@@ -207,19 +225,65 @@ namespace Multiplayer.Server
             if (float.IsNaN(pos.X) || float.IsNaN(pos.Z)
                 || Math.Abs(pos.X) > WorldHalfExtent || Math.Abs(pos.Z) > WorldHalfExtent)
             {
-                Log("Spawn rejected: player " + info.PlayerId + " position " + Format(pos) + " out of bounds");
+                Log("Place structure rejected: player " + info.PlayerId + " position " + Format(pos) + " out of bounds");
+                return;
+            }
+
+            Entity entity = world.Spawn(info.PlayerId, UnitType.Structure, pos);
+            Log("Placed structure " + entity.EntityId + " for player " + info.PlayerId + " at " + Format(pos));
+        }
+
+        void HandleBuildUnitRequest(NetPeer peer, BuildUnitRequestMessage request)
+        {
+            PlayerInfo info;
+            if (!players.TryGet(peer.Id, out info))
+            {
+                Log("Build rejected: peer " + peer.Id + " is not a registered player");
+                return;
+            }
+
+            Entity structure;
+            if (!world.TryGet(request.StructureId, out structure))
+            {
+                Log("Build rejected: structure " + request.StructureId + " does not exist");
+                return;
+            }
+
+            if (info.PlayerId != structure.OwnerId)
+            {
+                Log("Build rejected: player " + info.PlayerId + " does not own structure " + request.StructureId + " (owner " + structure.OwnerId + ")");
+                return;
+            }
+
+            if (structure.UnitType != UnitType.Structure)
+            {
+                Log("Build rejected: entity " + request.StructureId + " is a " + structure.UnitType + ", not a structure");
+                return;
+            }
+
+            UnitType unitType = (UnitType)request.UnitType;
+            if (unitType != UnitType.Soldier && unitType != UnitType.Tank)
+            {
+                Log("Build rejected: player " + info.PlayerId + " requested unbuildable unit type " + unitType);
                 return;
             }
 
             int owned = world.CountByOwner(info.PlayerId);
             if (owned >= MaxEntitiesPerPlayer)
             {
-                Log("Spawn rejected: player " + info.PlayerId + " already owns " + owned + " entities");
+                Log("Build rejected: player " + info.PlayerId + " already owns " + owned + " entities");
                 return;
             }
 
-            Entity entity = world.Spawn(info.PlayerId, pos);
-            Log("Spawned entity " + entity.EntityId + " for player " + info.PlayerId + " at " + Format(pos));
+            Vec2 pos;
+            if (!world.TryFindSpawnPoint(structure, WorldHalfExtent, out pos))
+            {
+                Log("Build rejected: no free spawn point around structure " + structure.EntityId);
+                return;
+            }
+
+            Entity entity = world.Spawn(info.PlayerId, unitType, pos);
+            Log("Built " + unitType + " " + entity.EntityId + " for player " + info.PlayerId + " at " + Format(pos));
         }
 
         void HandleMoveRequest(NetPeer peer, MoveRequestMessage request)
@@ -241,6 +305,12 @@ namespace Multiplayer.Server
             if (info.PlayerId != entity.OwnerId)
             {
                 Log("Move rejected: player " + info.PlayerId + " does not own entity " + request.EntityId + " (owner " + entity.OwnerId + ")");
+                return;
+            }
+
+            if (UnitDefs.Get(entity.UnitType).Speed <= 0f)
+            {
+                Log("Move rejected: entity " + request.EntityId + " is a " + entity.UnitType + " and cannot move");
                 return;
             }
 

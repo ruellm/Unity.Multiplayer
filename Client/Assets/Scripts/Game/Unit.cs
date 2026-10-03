@@ -1,3 +1,4 @@
+using Multiplayer.Protocol;
 using UnityEngine;
 
 namespace Multiplayer.Game
@@ -7,9 +8,22 @@ namespace Multiplayer.Game
         Renderer bodyRenderer;
         Material bodyMaterial;
         Color ownerColor = Color.white;
+        HealthBar healthBar;
+        int health;
 
         public int EntityId;
         public int OwnerId;
+        public UnitType UnitType;
+
+        public int Health
+        {
+            get { return health; }
+        }
+
+        public Renderer Body
+        {
+            get { return bodyRenderer; }
+        }
 
         public Color OwnerColor
         {
@@ -21,10 +35,21 @@ namespace Multiplayer.Game
             }
         }
 
-        void Awake()
+        public void Initialize(Renderer body, HealthBar bar)
         {
-            bodyRenderer = GetComponentInChildren<Renderer>();
+            bodyRenderer = body;
+            healthBar = bar;
             ApplyColor();
+        }
+
+        public void SetHealth(int value)
+        {
+            health = value;
+            if (healthBar == null)
+                return;
+
+            int max = UnitDefs.Get(UnitType).MaxHealth;
+            healthBar.SetFraction(max > 0 ? (float)value / max : 0f);
         }
 
         void OnDestroy()

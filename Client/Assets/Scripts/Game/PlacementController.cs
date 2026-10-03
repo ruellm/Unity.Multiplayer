@@ -9,17 +9,25 @@ namespace Multiplayer.Game
         static readonly Color IdleButtonColor = Color.white;
         static readonly Color ArmedButtonColor = new Color(1f, 0.8f, 0.3f);
 
-        Button addButton;
+        Button placeButton;
         NetworkClient network;
 
         public bool IsArmed { get; private set; }
 
         public void Initialize(Button button, NetworkClient client)
         {
-            addButton = button;
+            placeButton = button;
             network = client;
-            addButton.onClick.AddListener(ToggleArmed);
+            placeButton.onClick.AddListener(ToggleArmed);
             SetArmed(false);
+        }
+
+        public void SetAvailable(bool available)
+        {
+            if (!available)
+                SetArmed(false);
+
+            placeButton.interactable = available;
         }
 
         public void HandleClick(WorldHit hit)
@@ -27,9 +35,9 @@ namespace Multiplayer.Game
             if (!IsArmed || hit.Kind != WorldHitKind.Ground)
                 return;
 
-            SpawnRequestMessage request;
+            PlaceStructureRequestMessage request;
             request.Position = new Vec2(hit.Point.x, hit.Point.z);
-            network.Send(MessageId.SpawnRequest, request);
+            network.Send(MessageId.PlaceStructureRequest, request);
             SetArmed(false);
         }
 
@@ -40,8 +48,8 @@ namespace Multiplayer.Game
 
         void OnDestroy()
         {
-            if (addButton != null)
-                addButton.onClick.RemoveListener(ToggleArmed);
+            if (placeButton != null)
+                placeButton.onClick.RemoveListener(ToggleArmed);
         }
 
         void ToggleArmed()
@@ -52,8 +60,8 @@ namespace Multiplayer.Game
         void SetArmed(bool armed)
         {
             IsArmed = armed;
-            if (addButton != null && addButton.image != null)
-                addButton.image.color = armed ? ArmedButtonColor : IdleButtonColor;
+            if (placeButton != null && placeButton.image != null)
+                placeButton.image.color = armed ? ArmedButtonColor : IdleButtonColor;
         }
     }
 }

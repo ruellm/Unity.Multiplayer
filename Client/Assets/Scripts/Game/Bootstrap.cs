@@ -16,20 +16,24 @@ namespace Multiplayer.Game
         const float GroundSize = 100f;
         const float PlaneMeshSize = 10f;
         const int RingTextureSize = 128;
+        const float ButtonSpacing = 10f;
 
         static readonly Color GroundColor = new Color(0.32f, 0.42f, 0.3f);
         static readonly Color RingColor = new Color(0.3f, 1f, 0.4f);
         static readonly Color UiTextColor = new Color(0.1f, 0.1f, 0.1f);
+        static readonly Vector2 ButtonSize = new Vector2(240f, 56f);
 
         WorldInput worldInput;
         PlacementController placement;
         SelectionController selection;
+        ProductionController production;
         NetworkClient network;
         WorldView worldView;
         readonly PlayerRoster roster = new PlayerRoster();
-        Button addButton;
         Text statusText;
         int shownEntityCount = -1;
+        int shownOwnedCount = -1;
+        bool shownHasStructure;
 
         void Awake()
         {
@@ -46,24 +50,30 @@ namespace Multiplayer.Game
             Material groundMaterial = CreateMaterial(litShader, "Ground", GroundColor);
             Material unitMaterial = CreateMaterial(litShader, "Unit", Color.white);
             Material ringMaterial = CreateRingMaterial(unlitShader);
+            Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
 
             BuildLight();
             BuildGround(groundMaterial);
             Camera worldCamera = BuildCamera();
             BuildEventSystem();
-            BuildUi(out addButton, out statusText);
-            addButton.interactable = false;
+            Button placeButton;
+            GameObject productionPanel;
+            Button soldierButton;
+            Button tankButton;
+            BuildUi(out placeButton, out productionPanel, out soldierButton, out tankButton, out statusText);
 
             worldInput = gameObject.AddComponent<WorldInput>();
             placement = gameObject.AddComponent<PlacementController>();
             selection = gameObject.AddComponent<SelectionController>();
+            production = gameObject.AddComponent<ProductionController>();
             network = gameObject.AddComponent<NetworkClient>();
             worldView = gameObject.AddComponent<WorldView>();
 
             worldInput.Initialize(worldCamera);
-            placement.Initialize(addButton, network);
+            placement.Initialize(placeButton, network);
             selection.Initialize(ringMaterial, network);
-            worldView.Initialize(unitMaterial, roster);
+            production.Initialize(productionPanel, soldierButton, tankButton, selection, network);
+            worldView.Initialize(unitMaterial, healthBarMaterial, roster, worldCamera);
 
             worldInput.Clicked += RouteClick;
             worldView.EntityRemoved += selection.OnUnitRemoved;
@@ -115,8 +125,6 @@ namespace Multiplayer.Game
         {
             if (state != NetConnectionState.Connected)
             {
-                placement.Cancel();
-                addButton.interactable = false;
                 worldView.Clear();
                 roster.Clear();
             }
@@ -126,24 +134,35 @@ namespace Multiplayer.Game
 
         void OnWelcomed()
         {
-            addButton.interactable = true;
             RefreshStatus();
         }
 
         void OnSnapshot(WorldSnapshotMessage snapshot)
         {
             worldView.Apply(snapshot);
-            if (worldView.EntityCount != shownEntityCount)
+
+            bool hasStructure;
+            int owned = worldView.CountOwnedBy(network.PlayerId, out hasStructure);
+            if (worldView.EntityCount != shownEntityCount || owned != shownOwnedCount || hasStructure != shownHasStructure)
                 RefreshStatus();
         }
 
         void RefreshStatus()
         {
             shownEntityCount = worldView.EntityCount;
+            shownOwnedCount = 0;
+            shownHasStructure = false;
+            if (network.IsWelcomed)
+                shownOwnedCount = worldView.CountOwnedBy(network.PlayerId, out shownHasStructure);
+
+            placement.SetAvailable(network.IsWelcomed && !shownHasStructure);
+
             string status = network.State + " " + network.Endpoint;
             if (network.IsWelcomed)
                 status += ", Player " + network.PlayerId;
             status += ", Entities " + shownEntityCount;
+            if (network.IsWelcomed)
+                status += ", Mine " + shownOwnedCount + ", Structure " + (shownHasStructure ? "placed" : "not placed");
             statusText.text = status;
         }
 
@@ -250,7 +269,7 @@ namespace Multiplayer.Game
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
         }
 
-        static void BuildUi(out Button addButton, out Text statusText)
+        static void BuildUi(out Button placeButton, out GameObject productionPanel, out Button soldierButton, out Button tankButton, out Text statusText)
         {
             int uiLayer = LayerMask.NameToLayer("UI");
 
@@ -264,28 +283,49 @@ namespace Multiplayer.Game
             scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
 
-            addButton = BuildAddButton(canvasObject.transform, uiLayer);
+            placeButton = BuildButton(canvasObject.transform, uiLayer, "Place Structure", new Vector2(20f, -20f));
+
+            float step = ButtonSize.y + ButtonSpacing;
+            RectTransform panel = BuildProductionPanel(canvasObject.transform, uiLayer, new Vector2(20f, -20f - step));
+            soldierButton = BuildButton(panel, uiLayer, "Build Soldier", Vector2.zero);
+            tankButton = BuildButton(panel, uiLayer, "Build Tank", new Vector2(0f, -step));
+            productionPanel = panel.gameObject;
+
             statusText = BuildStatusText(canvasObject.transform, uiLayer);
         }
 
-        static Button BuildAddButton(Transform canvas, int uiLayer)
+        static RectTransform BuildProductionPanel(Transform canvas, int uiLayer, Vector2 position)
         {
-            GameObject buttonObject = new GameObject("Add Cube Button");
+            GameObject panelObject = new GameObject("Production Panel");
+            panelObject.layer = uiLayer;
+            RectTransform panelRect = panelObject.AddComponent<RectTransform>();
+            panelRect.SetParent(canvas, false);
+            panelRect.anchorMin = new Vector2(0f, 1f);
+            panelRect.anchorMax = new Vector2(0f, 1f);
+            panelRect.pivot = new Vector2(0f, 1f);
+            panelRect.anchoredPosition = position;
+            panelRect.sizeDelta = new Vector2(ButtonSize.x, ButtonSize.y * 2f + ButtonSpacing);
+            return panelRect;
+        }
+
+        static Button BuildButton(Transform parent, int uiLayer, string labelText, Vector2 position)
+        {
+            GameObject buttonObject = new GameObject(labelText + " Button");
             buttonObject.layer = uiLayer;
             RectTransform buttonRect = buttonObject.AddComponent<RectTransform>();
-            buttonRect.SetParent(canvas, false);
+            buttonRect.SetParent(parent, false);
             buttonRect.anchorMin = new Vector2(0f, 1f);
             buttonRect.anchorMax = new Vector2(0f, 1f);
             buttonRect.pivot = new Vector2(0f, 1f);
-            buttonRect.anchoredPosition = new Vector2(20f, -20f);
-            buttonRect.sizeDelta = new Vector2(200f, 56f);
+            buttonRect.anchoredPosition = position;
+            buttonRect.sizeDelta = ButtonSize;
 
             Image buttonImage = buttonObject.AddComponent<Image>();
             Button button = buttonObject.AddComponent<Button>();
             button.targetGraphic = buttonImage;
 
             Text label = CreateText(buttonRect, uiLayer, "Label", 26, TextAnchor.MiddleCenter);
-            label.text = "Add Cube";
+            label.text = labelText;
             RectTransform labelRect = label.rectTransform;
             labelRect.anchorMin = Vector2.zero;
             labelRect.anchorMax = Vector2.one;
@@ -303,7 +343,7 @@ namespace Multiplayer.Game
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 1f);
             rect.anchoredPosition = new Vector2(-20f, -20f);
-            rect.sizeDelta = new Vector2(600f, 32f);
+            rect.sizeDelta = new Vector2(1000f, 32f);
             status.color = Color.white;
             return status;
         }

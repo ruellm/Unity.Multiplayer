@@ -2,7 +2,7 @@ using LiteNetLib.Utils;
 
 namespace Multiplayer.Protocol
 {
-    public struct SpawnRequestMessage : INetSerializable
+    public struct PlaceStructureRequestMessage : INetSerializable
     {
         public Vec2 Position;
 

@@ -8,8 +8,9 @@ namespace Multiplayer.Protocol
         PlayerJoined = 2,
         PlayerLeft = 3,
 
-        SpawnRequest = 10,
         MoveRequest = 11,
+        PlaceStructureRequest = 12,
+        BuildUnitRequest = 13,
 
         WorldSnapshot = 20
     }

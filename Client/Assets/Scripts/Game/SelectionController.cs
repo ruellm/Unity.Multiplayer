@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Protocol;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -6,7 +7,7 @@ namespace Multiplayer.Game
 {
     public sealed class SelectionController : MonoBehaviour
     {
-        const float RingDiameter = 1.9f;
+        const float RingScale = 1.6f;
         const float RingLift = 0.03f;
         const int IgnoreRaycastLayer = 2;
 
@@ -19,6 +20,8 @@ namespace Multiplayer.Game
         {
             get { return selected; }
         }
+
+        public event Action<Unit> SelectionChanged;
 
         public void Initialize(Material material, NetworkClient client)
         {
@@ -35,7 +38,7 @@ namespace Multiplayer.Game
                 return;
             }
 
-            if (hit.Kind == WorldHitKind.Ground && selected != null)
+            if (hit.Kind == WorldHitKind.Ground && selected != null && UnitDefs.Get(selected.UnitType).Speed > 0f)
             {
                 MoveRequestMessage request;
                 request.EntityId = selected.EntityId;
@@ -52,13 +55,18 @@ namespace Multiplayer.Game
 
         public void ClearSelection()
         {
-            selected = null;
-
-            if (ring == null)
+            if (selected == null)
                 return;
 
-            ring.SetParent(transform, true);
-            ring.gameObject.SetActive(false);
+            selected = null;
+
+            if (ring != null)
+            {
+                ring.SetParent(transform, true);
+                ring.gameObject.SetActive(false);
+            }
+
+            RaiseSelectionChanged();
         }
 
         void Select(Unit unit)
@@ -72,11 +80,22 @@ namespace Multiplayer.Game
                 ring = CreateRing();
 
             Transform unitTransform = unit.transform;
-            float bottom = unit.GetComponentInChildren<Renderer>().bounds.min.y;
+            Bounds bounds = unit.Body.bounds;
+            float diameter = Mathf.Max(bounds.size.x, bounds.size.z) * RingScale;
 
             ring.SetParent(unitTransform, true);
-            ring.position = new Vector3(unitTransform.position.x, bottom + RingLift, unitTransform.position.z);
+            ring.position = new Vector3(unitTransform.position.x, bounds.min.y + RingLift, unitTransform.position.z);
+            ring.localScale = new Vector3(diameter, diameter, 1f);
             ring.gameObject.SetActive(true);
+
+            RaiseSelectionChanged();
+        }
+
+        void RaiseSelectionChanged()
+        {
+            Action<Unit> handler = SelectionChanged;
+            if (handler != null)
+                handler(selected);
         }
 
         Transform CreateRing()
@@ -96,7 +115,6 @@ namespace Multiplayer.Game
 
             Transform quadTransform = quad.transform;
             quadTransform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            quadTransform.localScale = new Vector3(RingDiameter, RingDiameter, 1f);
             return quadTransform;
         }
     }
