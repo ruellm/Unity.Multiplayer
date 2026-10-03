@@ -8,7 +8,6 @@ namespace Multiplayer.Game
     public sealed class WorldView : MonoBehaviour
     {
         const float HealthBarGap = 0.6f;
-        const float InterpolationDelay = (float)NetConfig.InterpolationDelayTicks / NetConfig.TickRate;
 
         static readonly Vector3 StructureSize = new Vector3(3f, 1f, 3f);
         static readonly Vector3 SoldierSize = new Vector3(0.8f, 0.8f, 0.8f);
@@ -18,18 +17,28 @@ namespace Multiplayer.Game
         readonly HashSet<int> seen = new HashSet<int>();
         readonly List<int> removeScratch = new List<int>();
         readonly SnapshotBuffer buffer = new SnapshotBuffer();
+        RenderClock clock;
 
         Material unitMaterial;
         Material healthBarMaterial;
         PlayerRoster roster;
         Camera worldCamera;
-        uint lastTick;
 
         public event Action<Unit> EntityRemoved;
 
         public int EntityCount
         {
             get { return units.Count; }
+        }
+
+        public RenderClock Clock
+        {
+            get { return clock; }
+        }
+
+        void Awake()
+        {
+            clock = new RenderClock(buffer);
         }
 
         public void Initialize(Material unit, Material healthBar, PlayerRoster playerRoster, Camera camera)
@@ -58,11 +67,9 @@ namespace Multiplayer.Game
 
         public void Apply(WorldSnapshotMessage snapshot)
         {
-            if (snapshot.Tick <= lastTick)
+            if (!buffer.Push(snapshot, Time.time))
                 return;
 
-            lastTick = snapshot.Tick;
-            buffer.Push(snapshot, Time.time);
             seen.Clear();
 
             List<EntityState> states = snapshot.Entities;
@@ -97,12 +104,12 @@ namespace Multiplayer.Game
                 Remove(removeScratch[i]);
 
             buffer.Clear();
-            lastTick = 0;
+            clock.Reset();
         }
 
         void Update()
         {
-            if (units.Count == 0 || !buffer.Resolve(Time.time - InterpolationDelay))
+            if (!clock.Advance(Time.time))
                 return;
 
             foreach (Unit unit in units.Values)

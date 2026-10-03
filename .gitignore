@@ -40,10 +40,11 @@ crashlytics-build.properties
 *.VC.db
 
 # ---- Generated project files ----
-# Unity regenerates its own; keep the server's.
+# Unity regenerates its own; keep the server's and the tests'.
 *.csproj
 *.unityproj
 !Server/**/*.csproj
+!Tests/**/*.csproj
 
 # ---- OS ----
 .DS_Store

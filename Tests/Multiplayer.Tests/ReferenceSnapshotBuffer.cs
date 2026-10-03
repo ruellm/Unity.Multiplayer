@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 using Multiplayer.Protocol;
 
-namespace Multiplayer.Game
+namespace Multiplayer.Tests
 {
-    public sealed class SnapshotBuffer
+    // Frozen copy of SnapshotBuffer from before RenderClock existed. It is the baseline the
+    // equivalence tests compare positions against, so it must never be edited.
+    public sealed class ReferenceSnapshotBuffer
     {
         sealed class Sample
         {
@@ -20,7 +22,6 @@ namespace Multiplayer.Game
         Sample from;
         Sample to;
         float blend;
-        float ticksBehindNewest;
 
         public int Count
         {
@@ -32,22 +33,10 @@ namespace Multiplayer.Game
             get { return samples.Count > 0 ? samples[samples.Count - 1].Tick : 0; }
         }
 
-        public float NewestTime
+        public void Push(WorldSnapshotMessage snapshot, float receiveTime)
         {
-            get { return samples.Count > 0 ? samples[samples.Count - 1].Time : 0f; }
-        }
-
-        // How far the last resolved render point sits behind the newest sample, in ticks.
-        // Built from the same bracket and blend as the position lerp, so the two cannot disagree.
-        public float TicksBehindNewest
-        {
-            get { return ticksBehindNewest; }
-        }
-
-        public bool Push(WorldSnapshotMessage snapshot, float receiveTime)
-        {
-            if (snapshot.Tick <= NewestTick)
-                return false;
+            if (samples.Count > 0 && snapshot.Tick <= NewestTick)
+                return;
 
             Sample sample;
             if (samples.Count == Capacity)
@@ -68,7 +57,6 @@ namespace Multiplayer.Game
                 sample.Positions[states[i].EntityId] = states[i].Position;
 
             samples.Add(sample);
-            return true;
         }
 
         public void Clear()
@@ -78,14 +66,12 @@ namespace Multiplayer.Game
             samples.Clear();
             from = null;
             to = null;
-            ticksBehindNewest = 0f;
         }
 
         public bool Resolve(float renderTime)
         {
             from = null;
             to = null;
-            ticksBehindNewest = 0f;
             if (samples.Count == 0)
                 return false;
 
@@ -93,14 +79,12 @@ namespace Multiplayer.Game
             while (index > 0 && samples[index].Time > renderTime)
                 index--;
 
-            uint newestTick = NewestTick;
             from = samples[index];
             if (index == samples.Count - 1 || renderTime <= from.Time)
             {
                 // Past the newest sample or before the oldest: hold, never extrapolate.
                 to = null;
                 blend = 0f;
-                ticksBehindNewest = newestTick - from.Tick;
                 return true;
             }
 
@@ -109,7 +93,6 @@ namespace Multiplayer.Game
             blend = span > 0f ? (renderTime - from.Time) / span : 1f;
             if (blend < 0f) blend = 0f;
             if (blend > 1f) blend = 1f;
-            ticksBehindNewest = (newestTick - to.Tick) + (1f - blend) * (to.Tick - from.Tick);
             return true;
         }
 
