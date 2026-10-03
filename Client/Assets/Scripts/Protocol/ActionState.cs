@@ -5,6 +5,7 @@ namespace Multiplayer.Protocol
         Idle = 0,
         Moving = 1,
         MovingToAttack = 2,
-        Attacking = 3
+        Attacking = 3,
+        Dying = 4
     }
 }

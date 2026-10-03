@@ -1,3 +1,5 @@
+using System;
+
 namespace Multiplayer.Protocol
 {
     public struct UnitDef
@@ -66,6 +68,11 @@ namespace Multiplayer.Protocol
             UnitDef def;
             TryGet(type, out def);
             return def;
+        }
+
+        public static int DeathTicks(UnitType type)
+        {
+            return (int)Math.Round(Get(type).DeathDuration * NetConfig.TickRate);
         }
     }
 }

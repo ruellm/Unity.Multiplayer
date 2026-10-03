@@ -14,18 +14,21 @@ namespace Multiplayer.Game
         static readonly Vector3 TankSize = new Vector3(1.8f, 0.6f, 1.3f);
         static readonly Vector3 BarrelSize = new Vector3(0.16f, 0.16f, 0.6f);
         const float BarrelHeight = 0.2f;
+        const float ExplosionHeight = 0.5f;
 
         readonly Dictionary<int, Unit> units = new Dictionary<int, Unit>();
         readonly HashSet<int> seen = new HashSet<int>();
         readonly List<int> removeScratch = new List<int>();
         readonly List<EntityState> resolved = new List<EntityState>();
         readonly SnapshotBuffer buffer = new SnapshotBuffer();
+        readonly EventQueue events = new EventQueue();
+        readonly List<GameEventMessage> released = new List<GameEventMessage>();
         RenderClock clock;
 
         Material unitMaterial;
         Material barrelMaterial;
         Material healthBarMaterial;
-        Material tracerMaterial;
+        Material effectMaterial;
         PlayerRoster roster;
         Camera worldCamera;
 
@@ -40,6 +43,11 @@ namespace Multiplayer.Game
         public RenderClock Clock
         {
             get { return clock; }
+        }
+
+        public EventQueue Events
+        {
+            get { return events; }
         }
 
         public Dictionary<int, Unit>.ValueCollection Units
@@ -57,12 +65,12 @@ namespace Multiplayer.Game
             clock = new RenderClock(buffer);
         }
 
-        public void Initialize(Material unit, Material barrel, Material healthBar, Material tracer, PlayerRoster playerRoster, Camera camera)
+        public void Initialize(Material unit, Material barrel, Material healthBar, Material effect, PlayerRoster playerRoster, Camera camera)
         {
             unitMaterial = unit;
             barrelMaterial = barrel;
             healthBarMaterial = healthBar;
-            tracerMaterial = tracer;
+            effectMaterial = effect;
             roster = playerRoster;
             worldCamera = camera;
         }
@@ -87,7 +95,13 @@ namespace Multiplayer.Game
         // the state resolved at the render clock, so everything drawn comes from one point in time.
         public void Apply(WorldSnapshotMessage snapshot)
         {
-            buffer.Push(snapshot, Time.time);
+            if (buffer.Push(snapshot, Time.time))
+                events.ObserveSnapshot(snapshot.Tick);
+        }
+
+        public void Enqueue(GameEventMessage gameEvent)
+        {
+            events.Enqueue(gameEvent);
         }
 
         public void Clear()
@@ -99,6 +113,7 @@ namespace Multiplayer.Game
 
             buffer.Clear();
             clock.Reset();
+            events.Clear();
         }
 
         void Update()
@@ -148,11 +163,31 @@ namespace Multiplayer.Game
             foreach (Unit unit in units.Values)
                 unit.Visual.Refresh(clock, this);
 
+            events.Release(clock, released);
+            for (int i = 0; i < released.Count; i++)
+                Play(released[i]);
+
             if (changed)
             {
                 Action handler = EntitiesChanged;
                 if (handler != null)
                     handler();
+            }
+        }
+
+        void Play(GameEventMessage gameEvent)
+        {
+            switch ((GameEventType)gameEvent.EventType)
+            {
+                case GameEventType.EntityDied:
+                    Unit unit;
+                    if (units.TryGetValue(gameEvent.EntityDied.EntityId, out unit))
+                        unit.Visual.PlayDeathFlourish((DeathCause)gameEvent.EntityDied.Cause);
+                    break;
+                case GameEventType.Explosion:
+                    Vec2 at = gameEvent.Explosion.Position;
+                    ExplosionEffect.Spawn(new Vector3(at.X, ExplosionHeight, at.Z), effectMaterial);
+                    break;
             }
         }
 
@@ -184,7 +219,7 @@ namespace Multiplayer.Game
 
             Transform muzzle = unitType != UnitType.Structure ? CreateBarrel(body.transform, size) : null;
             unit.Visual = root.AddComponent<UnitVisual>();
-            unit.Visual.Initialize(unit, body.transform, muzzle, tracerMaterial, clock.StateTick);
+            unit.Visual.Initialize(unit, body.transform, muzzle, effectMaterial, clock.StateTick);
             return unit;
         }
 

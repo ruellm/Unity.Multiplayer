@@ -58,8 +58,9 @@ namespace Multiplayer.Tests
         public void AttackerApproachesAndStopsJustInsideRange(UnitType unitType)
         {
             UnitDef def = UnitDefs.Get(unitType);
+            // A structure, so the target outlives the whole test.
             Entity attacker = world.Spawn(PlayerA, unitType, new Vec2(0f, 0f));
-            Entity target = world.Spawn(PlayerB, UnitType.Soldier, new Vec2(30f, 0f));
+            Entity target = world.Spawn(PlayerB, UnitType.Structure, new Vec2(30f, 0f));
             world.SetAttackTarget(attacker.EntityId, target.EntityId);
 
             Run(1);

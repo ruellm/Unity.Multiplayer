@@ -27,6 +27,8 @@ namespace Multiplayer.Game
         NetConnectionState state = NetConnectionState.Disconnected;
         readonly NetDataWriter writer = new NetDataWriter();
         readonly WorldSnapshotMessage snapshot = new WorldSnapshotMessage();
+        readonly GameEventBatchMessage eventBatch = new GameEventBatchMessage();
+        bool dropEvents;
 
         public NetConnectionState State
         {
@@ -47,6 +49,7 @@ namespace Multiplayer.Game
         public event Action<PlayerJoinedMessage> PlayerJoined;
         public event Action<int> PlayerLeft;
         public event Action<WorldSnapshotMessage> SnapshotReceived;
+        public event Action<GameEventMessage> GameEventReceived;
 
         public void Send(MessageId id, INetSerializable body)
         {
@@ -90,6 +93,13 @@ namespace Multiplayer.Game
                 string arg = args[i];
                 if (!arg.StartsWith("--", StringComparison.Ordinal))
                     continue;
+
+                // Test switch: discard every game event, to see what the replicated state alone shows.
+                if (arg == "--drop-events")
+                {
+                    dropEvents = true;
+                    continue;
+                }
 
                 bool hasValue = i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal);
                 if (arg == "--host" && hasValue)
@@ -189,6 +199,13 @@ namespace Multiplayer.Game
                     case MessageId.WorldSnapshot:
                         snapshot.Deserialize(reader);
                         Raise(SnapshotReceived, snapshot);
+                        break;
+                    case MessageId.GameEvent:
+                        eventBatch.Deserialize(reader);
+                        if (eventBatch.Truncated)
+                            Debug.Log("NetworkClient: unknown game event type, rest of the batch skipped");
+                        for (int i = 0; i < eventBatch.Events.Count && !dropEvents; i++)
+                            Raise(GameEventReceived, eventBatch.Events[i]);
                         break;
                     default:
                         Debug.Log("NetworkClient: unhandled message " + id);

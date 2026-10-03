@@ -12,6 +12,7 @@
 	  <Compile Include="..\..\Client\Assets\Scripts\Game\SnapshotBuffer.cs" LinkBase="Game" />
 	  <Compile Include="..\..\Client\Assets\Scripts\Game\RenderClock.cs" LinkBase="Game" />
 	  <Compile Include="..\..\Client\Assets\Scripts\Game\FiringPhase.cs" LinkBase="Game" />
+	  <Compile Include="..\..\Client\Assets\Scripts\Game\EventQueue.cs" LinkBase="Game" />
 	  <Compile Include="..\..\Server\Multiplayer.Server\World.cs" LinkBase="Server" />
 	</ItemGroup>
 

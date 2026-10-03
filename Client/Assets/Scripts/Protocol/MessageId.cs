@@ -13,6 +13,7 @@ namespace Multiplayer.Protocol
         BuildUnitRequest = 13,
         AttackRequest = 14,
 
-        WorldSnapshot = 20
+        WorldSnapshot = 20,
+        GameEvent = 21
     }
 }

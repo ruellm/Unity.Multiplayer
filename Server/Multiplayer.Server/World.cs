@@ -12,6 +12,7 @@ namespace Multiplayer.Server
         public int Health;
         public ActionState ActionState;
         public int TargetEntityId;
+        public uint DeathTick;
         public Vec2 Position;
         public Vec2 Target;
         public bool HasTarget;
@@ -28,6 +29,7 @@ namespace Multiplayer.Server
 
         readonly Dictionary<int, Entity> entities = new Dictionary<int, Entity>();
         readonly List<int> removeScratch = new List<int>();
+        readonly List<GameEventMessage> events = new List<GameEventMessage>();
         int nextEntityId = 1;
 
         public int Count
@@ -38,6 +40,12 @@ namespace Multiplayer.Server
         public IEnumerable<Entity> Entities
         {
             get { return entities.Values; }
+        }
+
+        // Events raised by Integrate. The caller sends them and clears the list.
+        public List<GameEventMessage> Events
+        {
+            get { return events; }
         }
 
         public bool TryGet(int entityId, out Entity entity)
@@ -82,13 +90,27 @@ namespace Multiplayer.Server
 
         public void Integrate(uint tick, float dt)
         {
+            removeScratch.Clear();
+
             foreach (Entity entity in entities.Values)
             {
+                if (entity.ActionState == ActionState.Dying)
+                {
+                    if (tick - entity.DeathTick >= (uint)UnitDefs.DeathTicks(entity.UnitType))
+                        removeScratch.Add(entity.EntityId);
+                    continue;
+                }
+
                 UnitDef def = UnitDefs.Get(entity.UnitType);
 
+                // A dying target is as good as gone: it cannot be attacked or followed.
                 Entity target = null;
-                if (entity.TargetEntityId != 0 && !entities.TryGetValue(entity.TargetEntityId, out target))
+                if (entity.TargetEntityId != 0
+                    && (!entities.TryGetValue(entity.TargetEntityId, out target) || target.ActionState == ActionState.Dying))
+                {
                     entity.TargetEntityId = 0;
+                    target = null;
+                }
 
                 if (target != null)
                 {
@@ -97,12 +119,8 @@ namespace Multiplayer.Server
                     if (dx * dx + dz * dz <= def.Range * def.Range)
                     {
                         entity.ActionState = ActionState.Attacking;
-                        if (entity.Health > 0
-                            && target.Health > 0
-                            && AttackSchedule.Fires(tick, entity.EntityId, AttackSchedule.CooldownTicks(entity.UnitType)))
-                        {
-                            target.Health = Math.Max(0, target.Health - def.Damage);
-                        }
+                        if (AttackSchedule.Fires(tick, entity.EntityId, AttackSchedule.CooldownTicks(entity.UnitType)))
+                            Damage(target, def.Damage, DeathCause.Shot, tick);
                         continue;
                     }
 
@@ -122,6 +140,29 @@ namespace Multiplayer.Server
                 if (entity.Position.X == entity.Target.X && entity.Position.Z == entity.Target.Z)
                     entity.HasTarget = false;
             }
+
+            for (int i = 0; i < removeScratch.Count; i++)
+            {
+                Entity removed = entities[removeScratch[i]];
+                entities.Remove(removed.EntityId);
+
+                // Stamped with the removal tick, so clients show it as the collapse ends, not as it starts.
+                if (removed.UnitType == UnitType.Structure)
+                    events.Add(GameEventMessage.Exploded(tick, removed.Position, ExplosionType.StructureDestroyed));
+            }
+        }
+
+        void Damage(Entity target, int amount, DeathCause cause, uint tick)
+        {
+            target.Health = Math.Max(0, target.Health - amount);
+            if (target.Health > 0)
+                return;
+
+            target.ActionState = ActionState.Dying;
+            target.DeathTick = tick;
+            target.TargetEntityId = 0;
+            target.HasTarget = false;
+            events.Add(GameEventMessage.Died(tick, target.EntityId, cause));
         }
 
         public bool TryFindSpawnPoint(Entity structure, float halfExtent, out Vec2 point)

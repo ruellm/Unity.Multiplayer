@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -21,6 +22,7 @@ namespace Multiplayer.Server
         readonly World world = new World();
         readonly NetDataWriter writer = new NetDataWriter();
         readonly WorldSnapshotMessage snapshot = new WorldSnapshotMessage();
+        readonly GameEventBatchMessage eventBatch = new GameEventBatchMessage();
         uint tick;
 
         public GameServer()
@@ -82,7 +84,30 @@ namespace Multiplayer.Server
             tick++;
             net.PollEvents();
             world.Integrate(tick, FixedDt);
+            BroadcastEvents();
             BroadcastSnapshot();
+        }
+
+        void BroadcastEvents()
+        {
+            List<GameEventMessage> events = world.Events;
+            if (events.Count == 0)
+                return;
+
+            eventBatch.Events.Clear();
+            for (int i = 0; i < events.Count; i++)
+            {
+                GameEventMessage gameEvent = events[i];
+                eventBatch.Events.Add(gameEvent);
+
+                Entity dead;
+                if (gameEvent.EventType == (byte)GameEventType.EntityDied && world.TryGet(gameEvent.EntityDied.EntityId, out dead))
+                    Log(dead.UnitType + " " + dead.EntityId + " of player " + dead.OwnerId + " died, cause " + (DeathCause)gameEvent.EntityDied.Cause);
+            }
+            events.Clear();
+
+            BeginMessage(MessageId.GameEvent, eventBatch);
+            SendToRegisteredExcept(null, DeliveryMethod.ReliableOrdered);
         }
 
         void BroadcastSnapshot()
@@ -262,6 +287,12 @@ namespace Multiplayer.Server
                 return;
             }
 
+            if (structure.ActionState == ActionState.Dying)
+            {
+                Log("Build rejected: structure " + request.StructureId + " is dying");
+                return;
+            }
+
             if (structure.UnitType != UnitType.Structure)
             {
                 Log("Build rejected: entity " + request.StructureId + " is a " + structure.UnitType + ", not a structure");
@@ -315,6 +346,12 @@ namespace Multiplayer.Server
                 return;
             }
 
+            if (entity.ActionState == ActionState.Dying)
+            {
+                Log("Move rejected: entity " + request.EntityId + " is dying");
+                return;
+            }
+
             if (UnitDefs.Get(entity.UnitType).Speed <= 0f)
             {
                 Log("Move rejected: entity " + request.EntityId + " is a " + entity.UnitType + " and cannot move");
@@ -359,6 +396,12 @@ namespace Multiplayer.Server
                 return;
             }
 
+            if (attacker.ActionState == ActionState.Dying)
+            {
+                Log("Attack rejected: attacker " + request.AttackerId + " is dying");
+                return;
+            }
+
             if (request.AttackerId == request.TargetEntityId)
             {
                 Log("Attack rejected: attacker and target are the same entity " + request.AttackerId);
@@ -381,6 +424,12 @@ namespace Multiplayer.Server
             if (target.OwnerId == info.PlayerId)
             {
                 Log("Attack rejected: player " + info.PlayerId + " owns target " + request.TargetEntityId);
+                return;
+            }
+
+            if (target.ActionState == ActionState.Dying)
+            {
+                Log("Attack rejected: target " + request.TargetEntityId + " is dying");
                 return;
             }
 

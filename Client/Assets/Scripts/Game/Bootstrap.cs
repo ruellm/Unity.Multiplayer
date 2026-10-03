@@ -53,7 +53,7 @@ namespace Multiplayer.Game
             Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
             Material attackLineMaterial = CreateMaterial(unlitShader, "Attack Line", AttackLineColor);
             Material barrelMaterial = CreateMaterial(litShader, "Barrel", BarrelColor);
-            Material tracerMaterial = CreateTracerMaterial(unlitShader);
+            Material effectMaterial = CreateEffectMaterial(unlitShader);
 
             BuildLight();
             BuildGround(groundMaterial);
@@ -78,7 +78,7 @@ namespace Multiplayer.Game
             placement.Initialize(placeButton, network);
             selection.Initialize(ringMaterial, attackLineMaterial, network, worldView);
             production.Initialize(productionPanel, soldierButton, tankButton, selection, network);
-            worldView.Initialize(unitMaterial, barrelMaterial, healthBarMaterial, tracerMaterial, roster, worldCamera);
+            worldView.Initialize(unitMaterial, barrelMaterial, healthBarMaterial, effectMaterial, roster, worldCamera);
             debugOverlay.Initialize(debugOverlayRoot, statusText.font, worldCamera, worldView);
 
             worldInput.Clicked += RouteClick;
@@ -89,6 +89,7 @@ namespace Multiplayer.Game
             network.PlayerJoined += roster.Add;
             network.PlayerLeft += roster.Remove;
             network.SnapshotReceived += worldView.Apply;
+            network.GameEventReceived += worldView.Enqueue;
             RefreshStatus();
         }
 
@@ -107,6 +108,7 @@ namespace Multiplayer.Game
                 network.PlayerJoined -= roster.Add;
                 network.PlayerLeft -= roster.Remove;
                 network.SnapshotReceived -= worldView.Apply;
+                network.GameEventReceived -= worldView.Enqueue;
             }
         }
 
@@ -189,9 +191,10 @@ namespace Multiplayer.Game
             return material;
         }
 
-        static Material CreateTracerMaterial(Shader unlitShader)
+        // Shared by tracers and explosions. Each tints and fades it through its own property block.
+        static Material CreateEffectMaterial(Shader unlitShader)
         {
-            Material material = CreateMaterial(unlitShader, "Tracer", Color.white);
+            Material material = CreateMaterial(unlitShader, "Effect", Color.white);
             material.SetFloat("_Surface", 1f);
             material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);

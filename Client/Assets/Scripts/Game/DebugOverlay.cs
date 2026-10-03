@@ -19,6 +19,7 @@ namespace Multiplayer.Game
         }
 
         const int FontSize = 15;
+        const int EventFontSize = 18;
         const float ScreenOffset = 8f;
 
         static readonly Color BackgroundColor = new Color(0f, 0f, 0f, 0.6f);
@@ -31,6 +32,10 @@ namespace Multiplayer.Game
         Font font;
         Camera worldCamera;
         WorldView worldView;
+        Text eventText;
+        int shownQueued = -1;
+        int shownReleased = -1;
+        int shownDropped = -1;
         bool visible;
 
         public void Initialize(RectTransform overlayRoot, Font labelFont, Camera camera, WorldView view)
@@ -42,6 +47,7 @@ namespace Multiplayer.Game
             worldView = view;
 
             worldView.EntityRemoved += OnEntityRemoved;
+            eventText = CreateEventText();
             root.gameObject.SetActive(false);
         }
 
@@ -65,6 +71,8 @@ namespace Multiplayer.Game
         {
             if (!visible)
                 return;
+
+            WriteEvents(worldView.Events);
 
             float scale = canvas.scaleFactor;
             foreach (Unit unit in worldView.Units)
@@ -103,6 +111,59 @@ namespace Multiplayer.Game
             labels.Remove(unit.EntityId);
             label.Rect.gameObject.SetActive(false);
             pool.Push(label);
+        }
+
+        void WriteEvents(EventQueue events)
+        {
+            if (events.Count == shownQueued && events.ReleasedCount == shownReleased && events.DroppedCount == shownDropped)
+                return;
+
+            shownQueued = events.Count;
+            shownReleased = events.ReleasedCount;
+            shownDropped = events.DroppedCount;
+
+            string last = "none";
+            if (events.ReleasedCount > 0)
+            {
+                GameEventMessage gameEvent = events.LastReleased;
+                switch ((GameEventType)gameEvent.EventType)
+                {
+                    case GameEventType.EntityDied:
+                        last = "EntityDied #" + gameEvent.EntityDied.EntityId + " " + (DeathCause)gameEvent.EntityDied.Cause;
+                        break;
+                    case GameEventType.Explosion:
+                        Vec2 at = gameEvent.Explosion.Position;
+                        last = "Explosion " + (ExplosionType)gameEvent.Explosion.ExplosionType + " at (" + at.X.ToString("0.0") + ", " + at.Z.ToString("0.0") + ")";
+                        break;
+                }
+                last += ", tick " + gameEvent.Tick;
+            }
+
+            eventText.text = "Events queued " + shownQueued + ", released " + shownReleased + ", dropped " + shownDropped
+                + "\nLast released: " + last;
+        }
+
+        Text CreateEventText()
+        {
+            GameObject textObject = new GameObject("Event Queue");
+            textObject.layer = root.gameObject.layer;
+            RectTransform rect = textObject.AddComponent<RectTransform>();
+            rect.SetParent(root, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            rect.anchoredPosition = new Vector2(20f, 20f);
+            rect.sizeDelta = new Vector2(900f, 52f);
+
+            Text text = textObject.AddComponent<Text>();
+            text.font = font;
+            text.fontSize = EventFontSize;
+            text.alignment = TextAnchor.LowerLeft;
+            text.color = Color.white;
+            text.raycastTarget = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            return text;
         }
 
         static void Write(Label label, Unit unit)

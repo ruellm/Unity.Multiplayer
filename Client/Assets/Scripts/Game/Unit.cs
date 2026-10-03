@@ -56,6 +56,12 @@ namespace Multiplayer.Game
             healthBar.SetFraction(max > 0 ? (float)value / max : 0f);
         }
 
+        public void SetFlash(Color color, float amount)
+        {
+            if (bodyMaterial != null)
+                bodyMaterial.color = Color.Lerp(ownerColor, color, amount);
+        }
+
         void OnDestroy()
         {
             if (bodyMaterial != null)

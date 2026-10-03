@@ -112,32 +112,17 @@ namespace Multiplayer.Tests
         }
 
         [Fact]
-        public void HealthClampsAtZeroAndTheEntityStays()
+        public void HealthClampsAtZero()
         {
             Entity victim = world.Spawn(PlayerB, UnitType.Soldier, new Vec2(0f, 0f));
-            Entity tank = AttackerInRangeOf(UnitType.Tank, victim);
+            AttackerInRangeOf(UnitType.Tank, victim);
 
-            Run(AttackSchedule.CooldownTicks(UnitType.Tank) * 5);
+            List<KeyValuePair<uint, int>> hits = RunAndRecordHits(AttackSchedule.CooldownTicks(UnitType.Tank) * 2, victim);
 
-            Entity found;
             Assert.Equal(0, victim.Health);
-            Assert.True(world.TryGet(victim.EntityId, out found));
-            Assert.Equal(ActionState.Idle, victim.ActionState);
-            Assert.Equal(ActionState.Attacking, tank.ActionState);
-            Assert.Equal(victim.EntityId, tank.TargetEntityId);
-        }
-
-        [Fact]
-        public void ZeroHealthEntityDealsNoDamage()
-        {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
-            Entity soldier = AttackerInRangeOf(UnitType.Soldier, structure);
-            soldier.Health = 0;
-
-            Run(AttackSchedule.CooldownTicks(UnitType.Soldier) * 4);
-
-            Assert.Equal(500, structure.Health);
-            Assert.Equal(ActionState.Attacking, soldier.ActionState);
+            Assert.Equal(2, hits.Count);
+            Assert.Equal(30, hits[0].Value);
+            Assert.Equal(20, hits[1].Value);
         }
 
         [Fact]

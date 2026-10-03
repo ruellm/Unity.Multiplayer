@@ -16,19 +16,28 @@ namespace Multiplayer.Game
         const float RecoilDuration = 0.15f;
         const float TracerDuration = 0.15f;
         const float TracerWidth = 0.07f;
+        const float CollapseFraction = 0.9f;
+        const float CollapseSpin = 200f;
+        const float CollapseRoll = 80f;
+        const float FlashDuration = 0.3f;
+        const float BurstScale = 0.4f;
         const float MinDirectionSqr = 0.00000001f;
         const int IgnoreRaycastLayer = 2;
 
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         static readonly Color TracerColor = new Color(1f, 0.9f, 0.4f, 1f);
+        static readonly Color ShotFlashColor = Color.white;
+        static readonly Color ExplosionFlashColor = new Color(1f, 0.5f, 0.1f);
 
         Unit unit;
         Transform body;
         Transform muzzle;
-        Material tracerMaterial;
+        Material effectMaterial;
+        Vector3 restScale;
         float restHeight;
         bool animated;
         FiringPhase firing;
+        int deathTicks;
 
         Vector3 lastPosition;
         float desiredYaw;
@@ -36,6 +45,12 @@ namespace Multiplayer.Game
         float tilt;
         float bobWeight;
         float recoil;
+
+        bool dying;
+        uint dyingStartTick;
+        Color flashColor;
+        float flash;
+        float burst;
 
         LineRenderer tracer;
         MaterialPropertyBlock tracerBlock;
@@ -52,23 +67,44 @@ namespace Multiplayer.Game
             get { return firing; }
         }
 
-        public void Initialize(Unit owner, Transform bodyTransform, Transform muzzleTransform, Material tracerLineMaterial, uint stateTick)
+        public void Initialize(Unit owner, Transform bodyTransform, Transform muzzleTransform, Material effectLineMaterial, uint stateTick)
         {
             unit = owner;
             body = bodyTransform;
             muzzle = muzzleTransform;
-            tracerMaterial = tracerLineMaterial;
+            effectMaterial = effectLineMaterial;
+            restScale = bodyTransform.localScale;
             restHeight = bodyTransform.localPosition.y;
             animated = owner.UnitType != UnitType.Structure;
             firing = new FiringPhase(owner.UnitType, owner.EntityId, stateTick);
+            deathTicks = Mathf.Max(1, UnitDefs.DeathTicks(owner.UnitType));
             lastPosition = ToWorld(owner.Position);
             transform.position = lastPosition;
+        }
+
+        // The one-shot part of a death. The collapse itself comes from the Dying state, so a client
+        // that never receives the event still shows the unit going down, only without this.
+        public void PlayDeathFlourish(DeathCause cause)
+        {
+            flash = 1f;
+            flashColor = cause == DeathCause.Explosion ? ExplosionFlashColor : ShotFlashColor;
+            burst = cause == DeathCause.Explosion ? 1f : 0f;
         }
 
         public void Refresh(RenderClock clock, WorldView view)
         {
             Vector3 position = ToWorld(unit.Position);
             transform.position = position;
+
+            float dt = Time.deltaTime;
+            UpdateFlourish(dt);
+
+            if (unit.ActionState == ActionState.Dying)
+            {
+                Collapse(clock);
+                return;
+            }
+
             if (!animated)
                 return;
 
@@ -82,7 +118,6 @@ namespace Multiplayer.Game
             if (firing.Step(clock.StateTick, unit.ActionState, unit.Health, unit.TargetEntityId, target != null, targetHealth))
                 Fire(target);
 
-            float dt = Time.deltaTime;
             ActionState state = unit.ActionState;
             bool moving = state == ActionState.Moving || state == ActionState.MovingToAttack;
 
@@ -105,6 +140,37 @@ namespace Multiplayer.Game
             body.localPosition = new Vector3(0f, restHeight + bob, 0f) + kick;
 
             UpdateTracer(dt, state);
+        }
+
+        // Timed on the render clock from the tick Dying first showed, and finished a little before
+        // DeathDuration so the body has shrunk to nothing by the time the entity is removed.
+        void Collapse(RenderClock clock)
+        {
+            if (!dying)
+            {
+                dying = true;
+                dyingStartTick = clock.StateTick;
+                if (tracer != null)
+                    tracer.enabled = false;
+            }
+
+            float progress = Mathf.Clamp01((clock.RenderTick - dyingStartTick) / (deathTicks * CollapseFraction));
+            float eased = progress * progress * (3f - 2f * progress);
+            float remaining = 1f - eased;
+
+            body.localScale = restScale * (remaining * (1f + BurstScale * burst));
+            body.localRotation = Quaternion.Euler(tilt, yaw + CollapseSpin * eased, CollapseRoll * eased);
+            body.localPosition = new Vector3(0f, restHeight * remaining, 0f);
+        }
+
+        void UpdateFlourish(float dt)
+        {
+            if (flash <= 0f)
+                return;
+
+            flash = Mathf.MoveTowards(flash, 0f, dt / FlashDuration);
+            burst = Mathf.Min(burst, flash);
+            unit.SetFlash(flashColor, flash);
         }
 
         void FaceAlong(Vector3 direction)
@@ -157,7 +223,7 @@ namespace Multiplayer.Game
             lineObject.transform.SetParent(transform, false);
 
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.sharedMaterial = tracerMaterial;
+            line.sharedMaterial = effectMaterial;
             line.useWorldSpace = true;
             line.positionCount = 2;
             line.shadowCastingMode = ShadowCastingMode.Off;
