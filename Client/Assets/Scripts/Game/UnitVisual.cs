@@ -6,14 +6,9 @@ namespace Multiplayer.Game
 {
     public sealed class UnitVisual : MonoBehaviour
     {
-        const float BobHeight = 0.08f;
-        const float BobSpeed = 2.5f;
-        const float BobBlendSpeed = 4f;
-        const float MoveTilt = 10f;
-        const float TiltSpeed = 60f;
         const float TurnSpeed = 540f;
-        const float RecoilDistance = 0.25f;
         const float RecoilDuration = 0.15f;
+        const float TurretRecoilDistance = 0.03f;
         const float TracerDuration = 0.15f;
         const float TracerWidth = 0.07f;
         const float CollapseFraction = 0.9f;
@@ -23,28 +18,40 @@ namespace Multiplayer.Game
         const float BurstScale = 0.4f;
         const float MinDirectionSqr = 0.00000001f;
         const int IgnoreRaycastLayer = 2;
+        const string DeadName = "Dead";
 
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        static readonly int StateId = Animator.StringToHash("State");
+        static readonly int DeadId = Animator.StringToHash(DeadName);
         static readonly Color TracerColor = new Color(1f, 0.9f, 0.4f, 1f);
         static readonly Color ShotFlashColor = Color.white;
         static readonly Color ExplosionFlashColor = new Color(1f, 0.5f, 0.1f);
 
         Unit unit;
         Transform body;
+        Transform model;
+        Transform turret;
         Transform muzzle;
+        Animator animator;
         Material effectMaterial;
         Vector3 restScale;
         float restHeight;
-        bool animated;
+        Quaternion turretRestRotation;
+        Vector3 turretRestPosition;
+        float turretTurnRate;
+        float deathClipSpeed;
+        float corpseHoldSeconds;
+        bool isStructure;
         FiringPhase firing;
         int deathTicks;
 
         Vector3 lastPosition;
         float desiredYaw;
         float yaw;
-        float tilt;
-        float bobWeight;
+        float turretYaw;
         float recoil;
+        int appliedState = -1;
+        bool appliedDead;
 
         bool dying;
         uint dyingStartTick;
@@ -59,7 +66,7 @@ namespace Multiplayer.Game
 
         public bool CanFire
         {
-            get { return animated && firing.CooldownTicks > 0; }
+            get { return firing.CooldownTicks > 0; }
         }
 
         public FiringPhase Firing
@@ -67,19 +74,43 @@ namespace Multiplayer.Game
             get { return firing; }
         }
 
-        public void Initialize(Unit owner, Transform bodyTransform, Transform muzzleTransform, Material effectLineMaterial, uint stateTick)
+        public void Initialize(Unit owner, Transform bodyTransform, Transform modelTransform, Transform turretPivot, Transform muzzleTransform, UnitVisualEntry entry, Material effectLineMaterial, uint stateTick)
         {
             unit = owner;
             body = bodyTransform;
+            model = modelTransform;
+            turret = turretPivot;
             muzzle = muzzleTransform;
             effectMaterial = effectLineMaterial;
             restScale = bodyTransform.localScale;
             restHeight = bodyTransform.localPosition.y;
-            animated = owner.UnitType != UnitType.Structure;
+            turretTurnRate = entry.TurretTurnRate;
+            deathClipSpeed = entry.DeathClipSpeed;
+            corpseHoldSeconds = entry.CorpseHoldSeconds;
+
+            if (turret != null)
+            {
+                turretRestRotation = turret.localRotation;
+                turretRestPosition = turret.localPosition;
+            }
+
+            animator = modelTransform.GetComponent<Animator>();
+            if (animator != null && animator.runtimeAnimatorController == null)
+                animator = null;
+
+            isStructure = owner.UnitType.IsStructure();
             firing = new FiringPhase(owner.UnitType, owner.EntityId, stateTick);
             deathTicks = Mathf.Max(1, UnitDefs.DeathTicks(owner.UnitType));
             lastPosition = ToWorld(owner.Position);
             transform.position = lastPosition;
+
+            // Structures never turn. Their heading is the yaw chosen at placement.
+            if (isStructure)
+            {
+                yaw = YawByte.ToDegrees(owner.Yaw);
+                desiredYaw = yaw;
+                body.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            }
         }
 
         // The one-shot part of a death. The collapse itself comes from the Dying state, so a client
@@ -101,12 +132,12 @@ namespace Multiplayer.Game
 
             if (unit.ActionState == ActionState.Dying)
             {
-                Collapse(clock);
+                if (animator != null)
+                    Die(clock);
+                else
+                    Collapse(clock);
                 return;
             }
-
-            if (!animated)
-                return;
 
             Unit target = null;
             if (unit.TargetEntityId != 0)
@@ -114,53 +145,128 @@ namespace Multiplayer.Game
 
             // Stepped on the render clock's state tick, never on local time, so the loop is in phase
             // with the health it drains and with every other client drawing the same snapshots.
-            int targetHealth = target != null ? target.Health : 0;
-            if (firing.Step(clock.StateTick, unit.ActionState, unit.Health, unit.TargetEntityId, target != null, targetHealth))
-                Fire(target);
+            if (firing.CooldownTicks > 0)
+            {
+                int targetHealth = target != null ? target.Health : 0;
+                if (firing.Step(clock.StateTick, unit.ActionState, unit.Health, unit.TargetEntityId, target != null, targetHealth))
+                    Fire(target);
+            }
 
             ActionState state = unit.ActionState;
-            bool moving = state == ActionState.Moving || state == ActionState.MovingToAttack;
+            bool aiming = (state == ActionState.MovingToAttack || state == ActionState.Attacking) && target != null;
 
-            Vector3 travel = position - lastPosition;
-            lastPosition = position;
-            if (moving)
-                FaceAlong(travel);
-            else if (state == ActionState.Attacking && target != null)
-                FaceAlong(ToWorld(target.Position) - position);
+            if (!isStructure)
+            {
+                bool moving = state == ActionState.Moving || state == ActionState.MovingToAttack;
 
-            yaw = Mathf.MoveTowardsAngle(yaw, desiredYaw, TurnSpeed * dt);
-            tilt = Mathf.MoveTowards(tilt, moving ? MoveTilt : 0f, TiltSpeed * dt);
-            bobWeight = Mathf.MoveTowards(bobWeight, state == ActionState.Idle ? 1f : 0f, BobBlendSpeed * dt);
+                Vector3 travel = position - lastPosition;
+                lastPosition = position;
+                if (moving)
+                    FaceAlong(travel);
+                else if (state == ActionState.Attacking && target != null && turret == null)
+                    FaceAlong(ToWorld(target.Position) - position);
+
+                yaw = Mathf.MoveTowardsAngle(yaw, desiredYaw, TurnSpeed * dt);
+                body.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            }
+
             recoil = Mathf.MoveTowards(recoil, 0f, dt / RecoilDuration);
 
-            // Phase offset by id so a group of idle units does not bob in unison.
-            float bob = BobHeight * bobWeight * (0.5f + 0.5f * Mathf.Sin(Time.time * BobSpeed + unit.EntityId));
-            Vector3 kick = Quaternion.Euler(0f, yaw, 0f) * Vector3.back * (RecoilDistance * recoil);
-            body.localRotation = Quaternion.Euler(tilt, yaw, 0f);
-            body.localPosition = new Vector3(0f, restHeight + bob, 0f) + kick;
+            if (turret != null)
+                UpdateTurret(dt, aiming ? target : null);
+
+            if (animator != null)
+                UpdateAnimator(state);
 
             UpdateTracer(dt, state);
+        }
+
+        // Yaw around the pivot's rest up axis, toward the target or back to rest. Recoil kicks the
+        // pivot along its own back axis.
+        void UpdateTurret(float dt, Unit target)
+        {
+            float desired = 0f;
+            if (target != null)
+            {
+                Vector3 toTarget = turret.parent.InverseTransformDirection(ToWorld(target.Position) - turret.position);
+                toTarget = Quaternion.Inverse(turretRestRotation) * toTarget;
+                toTarget.y = 0f;
+                desired = toTarget.sqrMagnitude > MinDirectionSqr
+                    ? Mathf.Atan2(toTarget.x, toTarget.z) * Mathf.Rad2Deg
+                    : turretYaw;
+            }
+
+            turretYaw = Mathf.MoveTowardsAngle(turretYaw, desired, turretTurnRate * dt);
+            turret.localRotation = turretRestRotation * Quaternion.Euler(0f, turretYaw, 0f);
+            turret.localPosition = turretRestPosition + turret.localRotation * Vector3.back * (TurretRecoilDistance * recoil);
+        }
+
+        // Parameters are only pushed once the Animator is initialized. Until then the applied value
+        // stays stale, so the next frame pushes it again.
+        void UpdateAnimator(ActionState state)
+        {
+            if (!animator.isInitialized)
+                return;
+
+            int value = state == ActionState.Idle ? 0 : (state == ActionState.Attacking ? 2 : 1);
+            if (value == appliedState)
+                return;
+
+            appliedState = value;
+            animator.SetInteger(StateId, value);
+        }
+
+        void BeginDying(RenderClock clock)
+        {
+            if (dying)
+                return;
+
+            dying = true;
+            dyingStartTick = clock.StateTick;
+            if (tracer != null)
+                tracer.enabled = false;
         }
 
         // Timed on the render clock from the tick Dying first showed, and finished a little before
         // DeathDuration so the body has shrunk to nothing by the time the entity is removed.
         void Collapse(RenderClock clock)
         {
-            if (!dying)
-            {
-                dying = true;
-                dyingStartTick = clock.StateTick;
-                if (tracer != null)
-                    tracer.enabled = false;
-            }
+            BeginDying(clock);
 
             float progress = Mathf.Clamp01((clock.RenderTick - dyingStartTick) / (deathTicks * CollapseFraction));
             float eased = progress * progress * (3f - 2f * progress);
             float remaining = 1f - eased;
 
             body.localScale = restScale * (remaining * (1f + BurstScale * burst));
-            body.localRotation = Quaternion.Euler(tilt, yaw + CollapseSpin * eased, CollapseRoll * eased);
+            body.localRotation = Quaternion.Euler(0f, yaw + CollapseSpin * eased, CollapseRoll * eased);
             body.localPosition = new Vector3(0f, restHeight * remaining, 0f);
+        }
+
+        // Animated death: the Dead clip plays and keeps playing on the corpse after removal.
+        void Die(RenderClock clock)
+        {
+            BeginDying(clock);
+
+            if (appliedDead || !animator.isInitialized)
+                return;
+
+            appliedDead = true;
+            animator.SetBool(DeadId, true);
+            animator.speed = deathClipSpeed;
+        }
+
+        // Hands the animated model over as a scene-root corpse once Dead has been applied. The caller
+        // destroys the entity root afterwards, which takes the collider, health bar and Unit with it.
+        public bool TryDetachCorpse(out CorpseTimer corpse)
+        {
+            corpse = null;
+            if (animator == null || !appliedDead || model == null)
+                return false;
+
+            model.SetParent(null, true);
+            model.name = "Corpse " + unit.EntityId;
+            corpse = CorpseTimer.Attach(model.gameObject, animator, DeadName, corpseHoldSeconds);
+            return true;
         }
 
         void UpdateFlourish(float dt)
@@ -212,7 +318,7 @@ namespace Multiplayer.Game
             tracer.SetPropertyBlock(tracerBlock);
             tracer.startWidth = TracerWidth * remaining;
             tracer.endWidth = TracerWidth * remaining;
-            tracer.SetPosition(0, muzzle.position);
+            tracer.SetPosition(0, muzzle != null ? muzzle.position : unit.Body.bounds.center);
             tracer.SetPosition(1, tracerTarget.Body.bounds.center);
         }
 

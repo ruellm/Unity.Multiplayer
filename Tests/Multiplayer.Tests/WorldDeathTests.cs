@@ -62,7 +62,7 @@ namespace Multiplayer.Tests
         [Theory]
         [InlineData(UnitType.Soldier)]
         [InlineData(UnitType.Tank)]
-        [InlineData(UnitType.Structure)]
+        [InlineData(UnitType.HQ)]
         public void DyingEntityStaysForItsDeathDurationThenIsRemoved(UnitType victimType)
         {
             Entity victim = world.Spawn(PlayerB, victimType, new Vec2(0f, 0f));
@@ -82,12 +82,12 @@ namespace Multiplayer.Tests
         [Fact]
         public void StructureEmitsExplosionAtItsPositionWhenItsCollapseEnds()
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(7f, -3f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(7f, -3f));
             AttackerInRangeOf(UnitType.Tank, structure);
             RunUntilDying(structure);
             world.Events.Clear();
 
-            Run(UnitDefs.DeathTicks(UnitType.Structure) - 1);
+            Run(UnitDefs.DeathTicks(UnitType.HQ) - 1);
             Assert.Empty(world.Events);
 
             Run(1);
@@ -150,7 +150,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void DyingEntityDealsNoDamageAndDoesNotMove()
         {
-            Entity structure = world.Spawn(PlayerA, UnitType.Structure, new Vec2(-4f, 4f));
+            Entity structure = world.Spawn(PlayerA, UnitType.HQ, new Vec2(-4f, 4f));
             Entity victim = world.Spawn(PlayerB, UnitType.Soldier, new Vec2(0f, 0f));
             world.SetAttackTarget(victim.EntityId, structure.EntityId);
             AttackerInRangeOf(UnitType.Tank, victim);
@@ -171,16 +171,16 @@ namespace Multiplayer.Tests
         [Fact]
         public void KillingAStructureLeavesItsOwnersUnits()
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity soldier = world.Spawn(PlayerB, UnitType.Soldier, new Vec2(20f, 20f));
             Entity tank = world.Spawn(PlayerB, UnitType.Tank, new Vec2(22f, 20f));
             AttackerInRangeOf(UnitType.Tank, structure);
 
             RunUntilDying(structure);
-            Run(UnitDefs.DeathTicks(UnitType.Structure) + 5);
+            Run(UnitDefs.DeathTicks(UnitType.HQ) + 5);
 
             Assert.False(Exists(structure));
-            Assert.False(world.HasStructure(PlayerB));
+            Assert.False(world.HasHQ(PlayerB));
             Assert.True(Exists(soldier));
             Assert.True(Exists(tank));
             Assert.Equal(2, world.CountByOwner(PlayerB));

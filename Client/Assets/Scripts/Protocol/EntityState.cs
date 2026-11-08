@@ -11,6 +11,7 @@ namespace Multiplayer.Protocol
         public byte ActionState;
         public int TargetEntityId;
         public Vec2 Position;
+        public byte Yaw;
 
         public void Serialize(NetDataWriter writer)
         {
@@ -21,6 +22,7 @@ namespace Multiplayer.Protocol
             writer.Put(ActionState);
             writer.Put(TargetEntityId);
             Position.Serialize(writer);
+            writer.Put(Yaw);
         }
 
         public void Deserialize(NetDataReader reader)
@@ -32,6 +34,7 @@ namespace Multiplayer.Protocol
             ActionState = reader.GetByte();
             TargetEntityId = reader.GetInt();
             Position = Vec2.Deserialize(reader);
+            Yaw = reader.GetByte();
         }
     }
 }

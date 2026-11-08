@@ -12,7 +12,7 @@ namespace Multiplayer.Server
 {
     public sealed class GameServer
     {
-        const float WorldHalfExtent = 50f;
+        const float WorldHalfExtent = Footprint.WorldHalfExtent;
         const int MaxEntitiesPerPlayer = 50;
         const float FixedDt = 1f / NetConfig.TickRate;
 
@@ -127,6 +127,7 @@ namespace Multiplayer.Server
                 state.ActionState = (byte)entity.ActionState;
                 state.TargetEntityId = entity.TargetEntityId;
                 state.Position = entity.Position;
+                state.Yaw = entity.Yaw;
                 snapshot.Entities.Add(state);
             }
 
@@ -247,22 +248,25 @@ namespace Multiplayer.Server
                 return;
             }
 
-            if (world.HasStructure(info.PlayerId))
-            {
-                Log("Place structure rejected: player " + info.PlayerId + " already has a structure");
-                return;
-            }
-
+            UnitType unitType = (UnitType)request.UnitType;
             Vec2 pos = request.Position;
-            if (float.IsNaN(pos.X) || float.IsNaN(pos.Z)
-                || Math.Abs(pos.X) > WorldHalfExtent || Math.Abs(pos.Z) > WorldHalfExtent)
+
+            PlacementError error = world.CheckPlacement(info.PlayerId, unitType, pos);
+            if (error != PlacementError.None)
             {
-                Log("Place structure rejected: player " + info.PlayerId + " position " + Format(pos) + " out of bounds");
+                Log("Place structure rejected: player " + info.PlayerId + " " + unitType + " at " + Format(pos) + ", " + Describe(error));
                 return;
             }
 
-            Entity entity = world.Spawn(info.PlayerId, UnitType.Structure, pos);
-            Log("Placed structure " + entity.EntityId + " for player " + info.PlayerId + " at " + Format(pos));
+            int owned = world.CountByOwner(info.PlayerId);
+            if (owned >= MaxEntitiesPerPlayer)
+            {
+                Log("Place structure rejected: player " + info.PlayerId + " already owns " + owned + " entities");
+                return;
+            }
+
+            Entity entity = world.Spawn(info.PlayerId, unitType, pos, request.Yaw);
+            Log("Placed " + unitType + " " + entity.EntityId + " for player " + info.PlayerId + " at " + Format(pos) + " yaw " + YawByte.ToDegrees(request.Yaw).ToString("0"));
         }
 
         void HandleBuildUnitRequest(NetPeer peer, BuildUnitRequestMessage request)
@@ -293,9 +297,9 @@ namespace Multiplayer.Server
                 return;
             }
 
-            if (structure.UnitType != UnitType.Structure)
+            if (structure.UnitType != UnitType.HQ)
             {
-                Log("Build rejected: entity " + request.StructureId + " is a " + structure.UnitType + ", not a structure");
+                Log("Build rejected: entity " + request.StructureId + " is a " + structure.UnitType + ", not an HQ");
                 return;
             }
 
@@ -314,7 +318,7 @@ namespace Multiplayer.Server
             }
 
             Vec2 pos;
-            if (!world.TryFindSpawnPoint(structure, WorldHalfExtent, out pos))
+            if (!world.TryFindSpawnPoint(structure, unitType, WorldHalfExtent, out pos))
             {
                 Log("Build rejected: no free spawn point around structure " + structure.EntityId);
                 return;
@@ -352,7 +356,7 @@ namespace Multiplayer.Server
                 return;
             }
 
-            if (UnitDefs.Get(entity.UnitType).Speed <= 0f)
+            if (entity.UnitType.IsStructure() || UnitDefs.Get(entity.UnitType).Speed <= 0f)
             {
                 Log("Move rejected: entity " + request.EntityId + " is a " + entity.UnitType + " and cannot move");
                 return;
@@ -405,6 +409,12 @@ namespace Multiplayer.Server
             if (request.AttackerId == request.TargetEntityId)
             {
                 Log("Attack rejected: attacker and target are the same entity " + request.AttackerId);
+                return;
+            }
+
+            if (attacker.UnitType.IsStructure())
+            {
+                Log("Attack rejected: entity " + request.AttackerId + " is a " + attacker.UnitType + " and takes no orders");
                 return;
             }
 
@@ -466,6 +476,25 @@ namespace Multiplayer.Server
             joined.G = info.Color.G;
             joined.B = info.Color.B;
             return joined;
+        }
+
+        static string Describe(PlacementError error)
+        {
+            switch (error)
+            {
+                case PlacementError.NotAStructure:
+                    return "not a placeable structure type";
+                case PlacementError.AlreadyHasHQ:
+                    return "already has an HQ";
+                case PlacementError.NeedsHQ:
+                    return "needs an HQ first";
+                case PlacementError.OutOfBounds:
+                    return "position out of bounds";
+                case PlacementError.Overlaps:
+                    return "overlaps an existing entity";
+                default:
+                    return error.ToString();
+            }
         }
 
         static string Format(Vec2 v)

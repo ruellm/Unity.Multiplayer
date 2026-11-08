@@ -1,38 +1,37 @@
 using Multiplayer.Protocol;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Multiplayer.Game
 {
     public sealed class ProductionController : MonoBehaviour
     {
-        GameObject panel;
-        Button soldierButton;
-        Button tankButton;
+        GameObject bar;
+        IconButton soldierButton;
+        IconButton tankButton;
         SelectionController selection;
         NetworkClient network;
 
-        public void Initialize(GameObject productionPanel, Button soldier, Button tank, SelectionController selectionController, NetworkClient client)
+        public void Initialize(GameObject productionBar, IconButton soldier, IconButton tank, SelectionController selectionController, NetworkClient client)
         {
-            panel = productionPanel;
+            bar = productionBar;
             soldierButton = soldier;
             tankButton = tank;
             selection = selectionController;
             network = client;
 
-            soldierButton.onClick.AddListener(BuildSoldier);
-            tankButton.onClick.AddListener(BuildTank);
+            soldierButton.Button.onClick.AddListener(BuildSoldier);
+            tankButton.Button.onClick.AddListener(BuildTank);
             selection.SelectionChanged += OnSelectionChanged;
             OnSelectionChanged(selection.Selected);
         }
 
         void OnDestroy()
         {
-            if (soldierButton != null)
-                soldierButton.onClick.RemoveListener(BuildSoldier);
+            if (soldierButton != null && soldierButton.Button != null)
+                soldierButton.Button.onClick.RemoveListener(BuildSoldier);
 
-            if (tankButton != null)
-                tankButton.onClick.RemoveListener(BuildTank);
+            if (tankButton != null && tankButton.Button != null)
+                tankButton.Button.onClick.RemoveListener(BuildTank);
 
             if (selection != null)
                 selection.SelectionChanged -= OnSelectionChanged;
@@ -40,8 +39,8 @@ namespace Multiplayer.Game
 
         void OnSelectionChanged(Unit unit)
         {
-            if (panel != null)
-                panel.SetActive(IsOwnStructure(unit));
+            if (bar != null)
+                bar.SetActive(IsOwnHQ(unit));
         }
 
         void BuildSoldier()
@@ -57,7 +56,7 @@ namespace Multiplayer.Game
         void Build(UnitType unitType)
         {
             Unit structure = selection.Selected;
-            if (!IsOwnStructure(structure))
+            if (!IsOwnHQ(structure))
                 return;
 
             BuildUnitRequestMessage request;
@@ -66,9 +65,9 @@ namespace Multiplayer.Game
             network.Send(MessageId.BuildUnitRequest, request);
         }
 
-        bool IsOwnStructure(Unit unit)
+        bool IsOwnHQ(Unit unit)
         {
-            return unit != null && unit.UnitType == UnitType.Structure && unit.OwnerId == network.PlayerId;
+            return unit != null && unit.UnitType == UnitType.HQ && unit.OwnerId == network.PlayerId;
         }
     }
 }

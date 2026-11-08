@@ -1,19 +1,14 @@
 using System;
 using System.Collections.Generic;
 using Multiplayer.Protocol;
+using RTS;
 using UnityEngine;
 
 namespace Multiplayer.Game
 {
     public sealed class WorldView : MonoBehaviour
     {
-        const float HealthBarGap = 0.6f;
-
-        static readonly Vector3 StructureSize = new Vector3(3f, 1f, 3f);
-        static readonly Vector3 SoldierSize = new Vector3(0.8f, 0.8f, 0.8f);
-        static readonly Vector3 TankSize = new Vector3(1.8f, 0.6f, 1.3f);
-        static readonly Vector3 BarrelSize = new Vector3(0.16f, 0.16f, 0.6f);
-        const float BarrelHeight = 0.2f;
+        const float HealthBarGap = 0.25f;
         const float ExplosionHeight = 0.5f;
 
         readonly Dictionary<int, Unit> units = new Dictionary<int, Unit>();
@@ -23,10 +18,10 @@ namespace Multiplayer.Game
         readonly SnapshotBuffer buffer = new SnapshotBuffer();
         readonly EventQueue events = new EventQueue();
         readonly List<GameEventMessage> released = new List<GameEventMessage>();
+        readonly List<CorpseTimer> corpses = new List<CorpseTimer>();
         RenderClock clock;
 
-        Material unitMaterial;
-        Material barrelMaterial;
+        UnitVisualSet visuals;
         Material healthBarMaterial;
         Material effectMaterial;
         PlayerRoster roster;
@@ -65,28 +60,33 @@ namespace Multiplayer.Game
             clock = new RenderClock(buffer);
         }
 
-        public void Initialize(Material unit, Material barrel, Material healthBar, Material effect, PlayerRoster playerRoster, Camera camera)
+        public void Initialize(UnitVisualSet visualSet, Material healthBar, Material effect, PlayerRoster playerRoster, Camera camera)
         {
-            unitMaterial = unit;
-            barrelMaterial = barrel;
+            visuals = visualSet;
             healthBarMaterial = healthBar;
             effectMaterial = effect;
             roster = playerRoster;
             worldCamera = camera;
+
+            if (visuals == null)
+            {
+                Debug.LogError("WorldView: no UnitVisualSet. No entities will be shown.");
+                enabled = false;
+            }
         }
 
-        public int CountOwnedBy(int playerId, out bool hasStructure)
+        public int CountOwnedBy(int playerId, out bool hasHQ)
         {
             int count = 0;
-            hasStructure = false;
+            hasHQ = false;
             foreach (Unit unit in units.Values)
             {
                 if (unit.OwnerId != playerId)
                     continue;
 
                 count++;
-                if (unit.UnitType == UnitType.Structure)
-                    hasStructure = true;
+                if (unit.UnitType == UnitType.HQ)
+                    hasHQ = true;
             }
             return count;
         }
@@ -111,9 +111,25 @@ namespace Multiplayer.Game
             for (int i = 0; i < removeScratch.Count; i++)
                 Remove(removeScratch[i]);
 
+            DestroyCorpses();
             buffer.Clear();
             clock.Reset();
             events.Clear();
+        }
+
+        void OnDestroy()
+        {
+            DestroyCorpses();
+        }
+
+        void DestroyCorpses()
+        {
+            for (int i = 0; i < corpses.Count; i++)
+            {
+                if (corpses[i] != null)
+                    Destroy(corpses[i].gameObject);
+            }
+            corpses.Clear();
         }
 
         void Update()
@@ -139,6 +155,7 @@ namespace Multiplayer.Game
                 }
 
                 unit.Position = state.Position;
+                unit.Yaw = state.Yaw;
                 unit.SetHealth(state.Health);
                 unit.ActionState = (ActionState)state.ActionState;
                 unit.TargetEntityId = state.TargetEntityId;
@@ -194,57 +211,125 @@ namespace Multiplayer.Game
         Unit Create(EntityState state)
         {
             UnitType unitType = (UnitType)state.UnitType;
-            Vector3 size = BodySize(unitType);
+            string entryName = EntryName(unitType);
+            UnitVisualEntry entry = visuals.Find(entryName);
+            if (entry == null || entry.Prefab == null)
+                throw new InvalidOperationException("UnitVisualSet has no prefab for entry '" + entryName + "'. Run Tools/RTS/Create Unit Visual Set.");
 
-            // Unscaled root so the health bar and selection ring are not skewed by the body's scale.
+            // Unscaled root. Body is what UnitVisual moves, the model and the pickable collider sit under it.
             GameObject root = new GameObject("Entity " + state.EntityId + " " + unitType);
 
-            GameObject body = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            body.name = "Body";
+            GameObject body = new GameObject("Body");
             body.transform.SetParent(root.transform, false);
-            body.transform.localPosition = new Vector3(0f, size.y * 0.5f, 0f);
-            body.transform.localScale = size;
-            Renderer bodyRenderer = body.GetComponent<Renderer>();
-            bodyRenderer.sharedMaterial = unitMaterial;
 
-            HealthBar bar = HealthBar.Create(root.transform, healthBarMaterial, worldCamera, size.x, size.y + HealthBarGap);
+            GameObject model = Instantiate(entry.Prefab, body.transform);
+            model.name = "Model";
+            Transform modelTransform = model.transform;
+            modelTransform.localPosition = Vector3.zero;
+            modelTransform.localRotation = Quaternion.identity;
+            modelTransform.localScale = Vector3.one * entry.Scale;
+
+            BoxCollider collider = body.AddComponent<BoxCollider>();
+            collider.center = entry.ColliderCenter * entry.Scale;
+            collider.size = entry.ColliderSize * entry.Scale;
+
+            Transform muzzle = CreateMuzzle(root.transform, modelTransform, entry);
+
+            Transform turret = null;
+            if (!string.IsNullOrEmpty(entry.TurretPivotName))
+            {
+                turret = FindChild(modelTransform, entry.TurretPivotName);
+                if (turret == null)
+                    Debug.LogWarning("WorldView: turret pivot '" + entry.TurretPivotName + "' not found on prefab '" + entry.Prefab.name + "'.", model);
+            }
+
+            TeamColor teamColor = model.GetComponent<TeamColor>();
+            if (teamColor == null)
+                Debug.LogWarning("WorldView: prefab '" + entry.Prefab.name + "' has no TeamColor component, owner colour will not show.", model);
+
+            float barLift = collider.center.y + collider.size.y * 0.5f + HealthBarGap;
+            HealthBar bar = HealthBar.Create(root.transform, healthBarMaterial, worldCamera, collider.size.x, barLift);
 
             Unit unit = root.AddComponent<Unit>();
             unit.EntityId = state.EntityId;
             unit.OwnerId = state.OwnerId;
             unit.UnitType = unitType;
             unit.Position = state.Position;
-            unit.Initialize(bodyRenderer, bar);
+            unit.Yaw = state.Yaw;
+            unit.Initialize(collider, teamColor, bar);
             unit.OwnerColor = roster.GetColor(state.OwnerId);
 
-            Transform muzzle = unitType != UnitType.Structure ? CreateBarrel(body.transform, size) : null;
             unit.Visual = root.AddComponent<UnitVisual>();
-            unit.Visual.Initialize(unit, body.transform, muzzle, effectMaterial, clock.StateTick);
+            unit.Visual.Initialize(unit, body.transform, modelTransform, turret, muzzle, entry, effectMaterial, clock.StateTick);
             return unit;
         }
 
-        // The barrel is what makes facing readable on an otherwise symmetric box.
-        Transform CreateBarrel(Transform body, Vector3 bodySize)
+        static Transform CreateMuzzle(Transform root, Transform model, UnitVisualEntry entry)
         {
-            GameObject barrel = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            barrel.name = "Barrel";
+            if (!string.IsNullOrEmpty(entry.MuzzleAttach))
+            {
+                Transform attach = FindChild(model, entry.MuzzleAttach);
+                if (attach == null)
+                {
+                    Debug.LogWarning("WorldView: muzzle attach '" + entry.MuzzleAttach + "' not found on prefab '" + entry.Prefab.name + "'.", model);
+                    return null;
+                }
 
-            Collider barrelCollider = barrel.GetComponent<Collider>();
-            barrelCollider.enabled = false;
-            Destroy(barrelCollider);
+                GameObject muzzle = new GameObject("Muzzle");
+                muzzle.transform.SetParent(attach, false);
+                muzzle.transform.localPosition = entry.MuzzleOffset;
+                return muzzle.transform;
+            }
 
-            // Divided by the body's scale so the barrel keeps its world size under the non-uniform parent.
-            float length = BarrelSize.z / bodySize.z;
-            Transform barrelTransform = barrel.transform;
-            barrelTransform.SetParent(body, false);
-            barrelTransform.localScale = new Vector3(BarrelSize.x / bodySize.x, BarrelSize.y / bodySize.y, length);
-            barrelTransform.localPosition = new Vector3(0f, BarrelHeight, 0.5f + length * 0.25f);
-            barrel.GetComponent<Renderer>().sharedMaterial = barrelMaterial;
+            Transform rifle = FindChild(model, "Rifle");
+            return rifle != null ? CreateRifleMuzzle(root, rifle) : null;
+        }
 
+        // Muzzle at the far end of the rifle mesh along whichever mesh axis points closest to the
+        // root's forward. Done before the Animator moves the arm, while the prefab pose still holds.
+        static Transform CreateRifleMuzzle(Transform root, Transform rifle)
+        {
+            MeshFilter filter = rifle.GetComponent<MeshFilter>();
+            if (filter == null || filter.sharedMesh == null)
+                return null;
+
+            Bounds bounds = filter.sharedMesh.bounds;
+            Vector3 forward = root.forward;
+            Vector3[] axes = { Vector3.right, Vector3.up, Vector3.forward };
+            Vector3 bestAxis = Vector3.forward;
+            float bestDot = 0f;
+            for (int i = 0; i < axes.Length; i++)
+            {
+                float dot = Vector3.Dot(rifle.TransformDirection(axes[i]).normalized, forward);
+                if (Mathf.Abs(dot) > Mathf.Abs(bestDot))
+                {
+                    bestDot = dot;
+                    bestAxis = axes[i];
+                }
+            }
+
+            if (bestDot < 0f)
+                bestAxis = -bestAxis;
+
+            Vector3 tip = bounds.center + Vector3.Scale(bestAxis, bounds.extents);
             GameObject muzzle = new GameObject("Muzzle");
-            muzzle.transform.SetParent(body, false);
-            muzzle.transform.localPosition = new Vector3(0f, BarrelHeight, 0.5f + length * 0.75f);
+            muzzle.transform.position = rifle.TransformPoint(tip);
+            muzzle.transform.SetParent(rifle, true);
             return muzzle.transform;
+        }
+
+        static Transform FindChild(Transform parent, string childName)
+        {
+            if (parent.name == childName)
+                return parent;
+
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform found = FindChild(parent.GetChild(i), childName);
+                if (found != null)
+                    return found;
+            }
+            return null;
         }
 
         void Remove(int entityId)
@@ -259,19 +344,37 @@ namespace Multiplayer.Game
             if (handler != null)
                 handler(unit);
 
+            CorpseTimer corpse;
+            if (unit.Visual != null && unit.Visual.TryDetachCorpse(out corpse))
+            {
+                corpses.RemoveAll(IsGone);
+                corpses.Add(corpse);
+            }
+
             Destroy(unit.gameObject);
         }
 
-        static Vector3 BodySize(UnitType unitType)
+        static bool IsGone(CorpseTimer corpse)
+        {
+            return corpse == null;
+        }
+
+        public static string EntryName(UnitType unitType)
         {
             switch (unitType)
             {
-                case UnitType.Structure:
-                    return StructureSize;
+                case UnitType.HQ:
+                    return "HQ";
+                case UnitType.Tower:
+                    return "Tower";
+                case UnitType.Wall:
+                    return "Wall";
+                case UnitType.Soldier:
+                    return "Soldier";
                 case UnitType.Tank:
-                    return TankSize;
+                    return "Tank";
                 default:
-                    return SoldierSize;
+                    throw new ArgumentOutOfRangeException("unitType", unitType, "No visual entry for unit type.");
             }
         }
     }

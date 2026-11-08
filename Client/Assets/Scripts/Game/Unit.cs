@@ -1,12 +1,13 @@
 using Multiplayer.Protocol;
+using RTS;
 using UnityEngine;
 
 namespace Multiplayer.Game
 {
     public sealed class Unit : MonoBehaviour
     {
-        Renderer bodyRenderer;
-        Material bodyMaterial;
+        BoxCollider body;
+        TeamColor teamColor;
         Color ownerColor = Color.white;
         HealthBar healthBar;
         int health;
@@ -17,6 +18,7 @@ namespace Multiplayer.Game
         public ActionState ActionState;
         public int TargetEntityId;
         public Vec2 Position;
+        public byte Yaw;
         public UnitVisual Visual;
 
         public int Health
@@ -24,9 +26,10 @@ namespace Multiplayer.Game
             get { return health; }
         }
 
-        public Renderer Body
+        // The pickable collider on the Body transform. Its bounds stand in for the model's footprint.
+        public BoxCollider Body
         {
-            get { return bodyRenderer; }
+            get { return body; }
         }
 
         public Color OwnerColor
@@ -39,9 +42,10 @@ namespace Multiplayer.Game
             }
         }
 
-        public void Initialize(Renderer body, HealthBar bar)
+        public void Initialize(BoxCollider bodyCollider, TeamColor color, HealthBar bar)
         {
-            bodyRenderer = body;
+            body = bodyCollider;
+            teamColor = color;
             healthBar = bar;
             ApplyColor();
         }
@@ -56,27 +60,15 @@ namespace Multiplayer.Game
             healthBar.SetFraction(max > 0 ? (float)value / max : 0f);
         }
 
+        // Model materials are shared through TeamColorMaterialCache, so there is no per-unit material to tint.
         public void SetFlash(Color color, float amount)
         {
-            if (bodyMaterial != null)
-                bodyMaterial.color = Color.Lerp(ownerColor, color, amount);
-        }
-
-        void OnDestroy()
-        {
-            if (bodyMaterial != null)
-                Destroy(bodyMaterial);
         }
 
         void ApplyColor()
         {
-            if (bodyRenderer == null)
-                return;
-
-            if (bodyMaterial == null)
-                bodyMaterial = bodyRenderer.material;
-
-            bodyMaterial.color = ownerColor;
+            if (teamColor != null)
+                teamColor.SetTeamColor(ownerColor);
         }
     }
 }

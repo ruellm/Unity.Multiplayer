@@ -96,12 +96,12 @@ namespace Multiplayer.Game
             selected = unit;
 
             if (ring == null)
-                ring = CreateRing();
+                ring = CreateRing(ringMaterial, "Selection Ring");
 
-            // Sized and placed from the unit root and the body's own scale, not its bounds, which
-            // now shift as the body bobs, tilts and turns.
+            // Sized from the collider's own footprint, not its world bounds, which shift as the body
+            // bobs, tilts and turns.
             Transform unitTransform = unit.transform;
-            Vector3 size = unit.Body.transform.localScale;
+            Vector3 size = unit.Body.size;
             float diameter = Mathf.Max(size.x, size.z) * RingScale;
 
             ring.SetParent(unitTransform, true);
@@ -158,10 +158,11 @@ namespace Multiplayer.Game
                 handler(selected);
         }
 
-        Transform CreateRing()
+        // A flat ring quad on the Ignore Raycast layer with no collider. Shared with placement.
+        public static Transform CreateRing(Material material, string name)
         {
             GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "Selection Ring";
+            quad.name = name;
             quad.layer = IgnoreRaycastLayer;
 
             Collider quadCollider = quad.GetComponent<Collider>();
@@ -169,7 +170,7 @@ namespace Multiplayer.Game
             Destroy(quadCollider);
 
             Renderer quadRenderer = quad.GetComponent<Renderer>();
-            quadRenderer.sharedMaterial = ringMaterial;
+            quadRenderer.sharedMaterial = material;
             quadRenderer.shadowCastingMode = ShadowCastingMode.Off;
             quadRenderer.receiveShadows = false;
 

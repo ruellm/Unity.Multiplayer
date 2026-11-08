@@ -52,7 +52,7 @@ namespace Multiplayer.Tests
         {
             int cooldown = AttackSchedule.CooldownTicks(unitType);
             int damage = UnitDefs.Get(unitType).Damage;
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Run(startDelay);
             Entity attacker = AttackerInRangeOf(unitType, structure);
 
@@ -79,7 +79,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void StructuresAreNeverScheduledToFire()
         {
-            int cooldown = AttackSchedule.CooldownTicks(UnitType.Structure);
+            int cooldown = AttackSchedule.CooldownTicks(UnitType.HQ);
 
             Assert.Equal(0, cooldown);
             for (uint t = 0; t < 100; t++)
@@ -89,7 +89,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void NoDamageWhileApproaching()
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity soldier = world.Spawn(PlayerA, UnitType.Soldier, new Vec2(-30f, 0f));
             world.SetAttackTarget(soldier.EntityId, structure.EntityId);
 
@@ -129,7 +129,7 @@ namespace Multiplayer.Tests
         public void SwitchingTargetsKeepsTheSameSchedule()
         {
             int cooldown = AttackSchedule.CooldownTicks(UnitType.Soldier);
-            Entity first = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity first = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity second = world.Spawn(PlayerB, UnitType.Tank, new Vec2(-4f, 3f));
             Entity soldier = AttackerInRangeOf(UnitType.Soldier, first);
             List<KeyValuePair<uint, int>> firstHits = RunAndRecordHits(cooldown * 2 + 4, first);
@@ -148,7 +148,7 @@ namespace Multiplayer.Tests
         public void MovingAwayStopsTheDamage()
         {
             int cooldown = AttackSchedule.CooldownTicks(UnitType.Soldier);
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity soldier = AttackerInRangeOf(UnitType.Soldier, structure);
             Run(cooldown);
             Assert.Equal(495, structure.Health);

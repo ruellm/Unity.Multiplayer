@@ -1,4 +1,5 @@
 using System;
+using Multiplayer.Protocol;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -53,7 +54,9 @@ namespace Multiplayer.Game
     public sealed class WorldInput : MonoBehaviour
     {
         const float MaxRayDistance = 500f;
+        const int MaxHits = 16;
 
+        readonly RaycastHit[] hits = new RaycastHit[MaxHits];
         Camera worldCamera;
 
         public event Action<WorldHit> Clicked;
@@ -101,6 +104,30 @@ namespace Multiplayer.Game
             return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
+        // Ground under the cursor, even with a unit in the way.
+        public bool TryGroundPoint(out Vector3 point)
+        {
+            point = Vector3.zero;
+            Mouse mouse = Mouse.current;
+            if (worldCamera == null || mouse == null)
+                return false;
+
+            Ray ray = worldCamera.ScreenPointToRay(mouse.position.ReadValue());
+            int count = Physics.RaycastNonAlloc(ray, hits, MaxRayDistance);
+            float best = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < count; i++)
+            {
+                if (hits[i].distance < best && hits[i].collider.GetComponentInParent<Ground>() != null)
+                {
+                    best = hits[i].distance;
+                    point = hits[i].point;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
         bool TryRaycast(Mouse mouse, WorldButton button, out WorldHit worldHit)
         {
             worldHit = default;
@@ -108,21 +135,58 @@ namespace Multiplayer.Game
                 return false;
 
             Ray ray = worldCamera.ScreenPointToRay(mouse.position.ReadValue());
-            RaycastHit hit;
-            if (!Physics.Raycast(ray, out hit, MaxRayDistance))
+            int count = Physics.RaycastNonAlloc(ray, hits, MaxRayDistance);
+            if (count == 0)
                 return false;
 
-            Unit unit = hit.collider.GetComponentInParent<Unit>();
-            if (unit != null)
+            // Closest unit beats any structure, closest structure beats ground.
+            Unit bestUnit = null;
+            Vector3 unitPoint = Vector3.zero;
+            float unitDistance = float.MaxValue;
+            bool unitIsStructure = true;
+
+            bool groundHit = false;
+            Vector3 groundPoint = Vector3.zero;
+            float groundDistance = float.MaxValue;
+
+            for (int i = 0; i < count; i++)
             {
-                worldHit = WorldHit.OnUnit(button, unit, hit.point);
+                RaycastHit hit = hits[i];
+                Unit unit = hit.collider.GetComponentInParent<Unit>();
+                if (unit != null)
+                {
+                    bool isStructure = unit.UnitType.IsStructure();
+                    bool better = bestUnit == null
+                        || (unitIsStructure && !isStructure)
+                        || (unitIsStructure == isStructure && hit.distance < unitDistance);
+                    if (better)
+                    {
+                        bestUnit = unit;
+                        unitPoint = hit.point;
+                        unitDistance = hit.distance;
+                        unitIsStructure = isStructure;
+                    }
+                    continue;
+                }
+
+                if (hit.distance < groundDistance && hit.collider.GetComponentInParent<Ground>() != null)
+                {
+                    groundHit = true;
+                    groundPoint = hit.point;
+                    groundDistance = hit.distance;
+                }
+            }
+
+            if (bestUnit != null)
+            {
+                worldHit = WorldHit.OnUnit(button, bestUnit, unitPoint);
                 return true;
             }
 
-            if (hit.collider.GetComponentInParent<Ground>() == null)
+            if (!groundHit)
                 return false;
 
-            worldHit = WorldHit.OnGround(button, hit.point);
+            worldHit = WorldHit.OnGround(button, groundPoint);
             return true;
         }
 

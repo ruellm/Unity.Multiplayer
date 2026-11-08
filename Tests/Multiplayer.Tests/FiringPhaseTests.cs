@@ -50,7 +50,7 @@ namespace Multiplayer.Tests
         [InlineData(UnitType.Tank)]
         public void ShotsLandOnTheTicksHealthDrops(UnitType unitType)
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity attacker = world.Spawn(PlayerA, unitType, new Vec2(-30f, 0f));
             FiringPhase phase = new FiringPhase(unitType, attacker.EntityId, tick);
             world.SetAttackTarget(attacker.EntityId, structure.EntityId);
@@ -84,7 +84,7 @@ namespace Multiplayer.Tests
         [InlineData(UnitType.Tank, 90)]
         public void ObserverJoiningMidFightDerivesTheSameShotTicks(UnitType unitType, int joinAfter)
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity attacker = world.Spawn(PlayerA, unitType, new Vec2(-4f, 0f));
             FiringPhase fromAcquisition = new FiringPhase(unitType, attacker.EntityId, tick);
             world.SetAttackTarget(attacker.EntityId, structure.EntityId);
@@ -101,7 +101,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void SwitchingTargetsKeepsFiringOnSchedule()
         {
-            Entity first = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity first = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity second = world.Spawn(PlayerB, UnitType.Tank, new Vec2(-4f, 3f));
             Entity soldier = world.Spawn(PlayerA, UnitType.Soldier, new Vec2(-4f, 0f));
             FiringPhase phase = new FiringPhase(UnitType.Soldier, soldier.EntityId, tick);
@@ -136,7 +136,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void MoveOrderStopsTheLoop()
         {
-            Entity structure = world.Spawn(PlayerB, UnitType.Structure, new Vec2(0f, 0f));
+            Entity structure = world.Spawn(PlayerB, UnitType.HQ, new Vec2(0f, 0f));
             Entity soldier = world.Spawn(PlayerA, UnitType.Soldier, new Vec2(-4f, 0f));
             FiringPhase phase = new FiringPhase(UnitType.Soldier, soldier.EntityId, tick);
             world.SetAttackTarget(soldier.EntityId, structure.EntityId);
@@ -155,7 +155,7 @@ namespace Multiplayer.Tests
         [Fact]
         public void StructuresNeverFire()
         {
-            FiringPhase phase = new FiringPhase(UnitType.Structure, 7, 0);
+            FiringPhase phase = new FiringPhase(UnitType.HQ, 7, 0);
 
             for (uint t = 1; t <= 200; t++)
                 Assert.False(phase.Step(t, ActionState.Attacking, 500, 9, true, 50));

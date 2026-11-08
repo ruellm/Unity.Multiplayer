@@ -16,14 +16,35 @@ namespace Multiplayer.Game
         const float GroundSize = 100f;
         const float PlaneMeshSize = 10f;
         const int RingTextureSize = 128;
+        const float BarMargin = 20f;
         const float ButtonSpacing = 10f;
+        const float IconButtonSize = 96f;
+        const float IconSize = 60f;
+        const float IconLabelHeight = 20f;
+
+        // Shared with the editor icon renderer so icons are lit like the game.
+        public const float SunIntensity = 1.2f;
+        public static readonly Vector3 SunEuler = new Vector3(50f, -30f, 0f);
 
         static readonly Color GroundColor = new Color(0.32f, 0.42f, 0.3f);
         static readonly Color RingColor = new Color(0.3f, 1f, 0.4f);
         static readonly Color AttackLineColor = new Color(1f, 0.25f, 0.2f);
-        static readonly Color BarrelColor = new Color(0.15f, 0.15f, 0.17f);
         static readonly Color UiTextColor = new Color(0.1f, 0.1f, 0.1f);
-        static readonly Vector2 ButtonSize = new Vector2(240f, 56f);
+        static readonly Vector2 SmallButtonSize = new Vector2(IconButtonSize, (IconButtonSize - ButtonSpacing) * 0.5f);
+
+        sealed class UiHandles
+        {
+            public IconButton PlaceHQ;
+            public IconButton PlaceTower;
+            public IconButton PlaceWall;
+            public Button Rotate;
+            public Button Cancel;
+            public GameObject ProductionBar;
+            public IconButton BuildSoldier;
+            public IconButton BuildTank;
+            public Text Status;
+            public RectTransform DebugOverlayRoot;
+        }
 
         WorldInput worldInput;
         PlacementController placement;
@@ -38,7 +59,7 @@ namespace Multiplayer.Game
         void Awake()
         {
             Application.runInBackground = true;
-            
+
             Shader litShader = FindShader(LitShaderName);
             Shader unlitShader = FindShader(UnlitShaderName);
             if (litShader == null || unlitShader == null)
@@ -47,24 +68,26 @@ namespace Multiplayer.Game
                 return;
             }
 
+            UnitVisualSet visuals = Resources.Load<UnitVisualSet>(UnitVisualSet.ResourceName);
+            if (visuals == null)
+            {
+                Debug.LogError("Bootstrap: Resources/" + UnitVisualSet.ResourceName + ".asset not found. Run Tools/RTS/Create Unit Visual Set in the editor. Scene was not built.");
+                enabled = false;
+                return;
+            }
+
             Material groundMaterial = CreateMaterial(litShader, "Ground", GroundColor);
-            Material unitMaterial = CreateMaterial(litShader, "Unit", Color.white);
             Material ringMaterial = CreateRingMaterial(unlitShader);
             Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
             Material attackLineMaterial = CreateMaterial(unlitShader, "Attack Line", AttackLineColor);
-            Material barrelMaterial = CreateMaterial(litShader, "Barrel", BarrelColor);
             Material effectMaterial = CreateEffectMaterial(unlitShader);
 
             BuildLight();
             BuildGround(groundMaterial);
             Camera worldCamera = BuildCamera();
             BuildEventSystem();
-            Button placeButton;
-            GameObject productionPanel;
-            Button soldierButton;
-            Button tankButton;
-            RectTransform debugOverlayRoot;
-            BuildUi(out placeButton, out productionPanel, out soldierButton, out tankButton, out statusText, out debugOverlayRoot);
+            UiHandles ui = BuildUi(visuals);
+            statusText = ui.Status;
 
             worldInput = gameObject.AddComponent<WorldInput>();
             placement = gameObject.AddComponent<PlacementController>();
@@ -75,13 +98,14 @@ namespace Multiplayer.Game
             debugOverlay = gameObject.AddComponent<DebugOverlay>();
 
             worldInput.Initialize(worldCamera);
-            placement.Initialize(placeButton, network);
+            worldView.Initialize(visuals, healthBarMaterial, effectMaterial, roster, worldCamera);
+            placement.Initialize(ui.PlaceHQ, ui.PlaceTower, ui.PlaceWall, ui.Rotate, ui.Cancel, visuals, ringMaterial, worldInput, network, worldView);
             selection.Initialize(ringMaterial, attackLineMaterial, network, worldView);
-            production.Initialize(productionPanel, soldierButton, tankButton, selection, network);
-            worldView.Initialize(unitMaterial, barrelMaterial, healthBarMaterial, effectMaterial, roster, worldCamera);
-            debugOverlay.Initialize(debugOverlayRoot, statusText.font, worldCamera, worldView);
+            production.Initialize(ui.ProductionBar, ui.BuildSoldier, ui.BuildTank, selection, network);
+            debugOverlay.Initialize(ui.DebugOverlayRoot, statusText.font, worldCamera, worldView);
 
             worldInput.Clicked += RouteClick;
+            placement.Changed += RefreshStatus;
             worldView.EntityRemoved += selection.OnUnitRemoved;
             worldView.EntitiesChanged += RefreshStatus;
             network.StateChanged += OnNetworkStateChanged;
@@ -98,8 +122,14 @@ namespace Multiplayer.Game
             if (worldInput != null)
                 worldInput.Clicked -= RouteClick;
 
+            if (placement != null)
+                placement.Changed -= RefreshStatus;
+
             if (worldView != null && selection != null)
                 worldView.EntityRemoved -= selection.OnUnitRemoved;
+
+            if (worldView != null)
+                worldView.EntitiesChanged -= RefreshStatus;
 
             if (network != null)
             {
@@ -134,6 +164,7 @@ namespace Multiplayer.Game
         {
             if (state != NetConnectionState.Connected)
             {
+                placement.Cancel();
                 worldView.Clear();
                 roster.Clear();
             }
@@ -149,18 +180,22 @@ namespace Multiplayer.Game
         void RefreshStatus()
         {
             int owned = 0;
-            bool hasStructure = false;
+            bool hasHQ = false;
             if (network.IsWelcomed)
-                owned = worldView.CountOwnedBy(network.PlayerId, out hasStructure);
+                owned = worldView.CountOwnedBy(network.PlayerId, out hasHQ);
 
-            placement.SetAvailable(network.IsWelcomed && !hasStructure);
+            placement.SetAvailable(network.IsWelcomed, hasHQ);
 
             string status = network.State + " " + network.Endpoint;
             if (network.IsWelcomed)
                 status += ", Player " + network.PlayerId;
             status += ", Entities " + worldView.EntityCount;
             if (network.IsWelcomed)
-                status += ", Mine " + owned + ", Structure " + (hasStructure ? "placed" : "not placed");
+                status += ", Mine " + owned + ", HQ " + (hasHQ ? "placed" : "not placed");
+            if (placement.IsArmed)
+                status += ", Placing " + placement.PendingType + " yaw " + placement.YawDegrees.ToString("0") + " (R rotates)";
+            if (placement.Notice != null)
+                status += ", " + placement.Notice;
             statusText.text = status;
         }
 
@@ -238,11 +273,11 @@ namespace Multiplayer.Game
         static void BuildLight()
         {
             GameObject lightObject = new GameObject("Directional Light");
-            lightObject.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            lightObject.transform.rotation = Quaternion.Euler(SunEuler);
 
             Light sun = lightObject.AddComponent<Light>();
             sun.type = LightType.Directional;
-            sun.intensity = 1.2f;
+            sun.intensity = SunIntensity;
             sun.shadows = LightShadows.Soft;
 
             lightObject.AddComponent<UniversalAdditionalLightData>();
@@ -281,7 +316,7 @@ namespace Multiplayer.Game
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
         }
 
-        static void BuildUi(out Button placeButton, out GameObject productionPanel, out Button soldierButton, out Button tankButton, out Text statusText, out RectTransform debugOverlayRoot)
+        static UiHandles BuildUi(UnitVisualSet visuals)
         {
             int uiLayer = LayerMask.NameToLayer("UI");
 
@@ -295,17 +330,35 @@ namespace Multiplayer.Game
             scaler.matchWidthOrHeight = 0.5f;
             canvasObject.AddComponent<GraphicRaycaster>();
 
-            // Built first so the debug labels draw underneath the buttons and status text.
-            debugOverlayRoot = BuildDebugOverlayRoot(canvasObject.transform, uiLayer);
-            placeButton = BuildButton(canvasObject.transform, uiLayer, "Place Structure", new Vector2(20f, -20f));
+            UiHandles ui = new UiHandles();
 
-            float step = ButtonSize.y + ButtonSpacing;
-            RectTransform panel = BuildProductionPanel(canvasObject.transform, uiLayer, new Vector2(20f, -20f - step));
-            soldierButton = BuildButton(panel, uiLayer, "Build Soldier", Vector2.zero);
-            tankButton = BuildButton(panel, uiLayer, "Build Tank", new Vector2(0f, -step));
-            productionPanel = panel.gameObject;
+            // Built first so the debug labels draw underneath the bars and status text.
+            ui.DebugOverlayRoot = BuildDebugOverlayRoot(canvasObject.transform, uiLayer);
 
-            statusText = BuildStatusText(canvasObject.transform, uiLayer);
+            float step = IconButtonSize + ButtonSpacing;
+
+            RectTransform buildBar = BuildBar(canvasObject.transform, uiLayer, "Build Bar", new Vector2(BarMargin, BarMargin), 3);
+            ui.PlaceHQ = BuildIconButton(buildBar, uiLayer, "HQ", IconFor(visuals, "HQ"), new Vector2(0f, 0f));
+            ui.PlaceTower = BuildIconButton(buildBar, uiLayer, "Tower", IconFor(visuals, "Tower"), new Vector2(step, 0f));
+            ui.PlaceWall = BuildIconButton(buildBar, uiLayer, "Wall", IconFor(visuals, "Wall"), new Vector2(2f * step, 0f));
+
+            RectTransform productionBar = BuildBar(canvasObject.transform, uiLayer, "Production Bar", new Vector2(BarMargin, BarMargin + step), 2);
+            ui.BuildSoldier = BuildIconButton(productionBar, uiLayer, "Soldier", IconFor(visuals, "Soldier"), new Vector2(0f, 0f));
+            ui.BuildTank = BuildIconButton(productionBar, uiLayer, "Tank", IconFor(visuals, "Tank"), new Vector2(step, 0f));
+            ui.ProductionBar = productionBar.gameObject;
+
+            RectTransform tools = BuildBar(canvasObject.transform, uiLayer, "Placement Tools", new Vector2(BarMargin + 3f * step, BarMargin), 1);
+            ui.Cancel = BuildTextButton(tools, uiLayer, "Cancel", new Vector2(0f, 0f), SmallButtonSize);
+            ui.Rotate = BuildTextButton(tools, uiLayer, "Rotate", new Vector2(0f, SmallButtonSize.y + ButtonSpacing), SmallButtonSize);
+
+            ui.Status = BuildStatusText(canvasObject.transform, uiLayer);
+            return ui;
+        }
+
+        static Sprite IconFor(UnitVisualSet visuals, string entryName)
+        {
+            UnitVisualEntry entry = visuals.Find(entryName);
+            return entry != null ? entry.Icon : null;
         }
 
         static RectTransform BuildDebugOverlayRoot(Transform canvas, int uiLayer)
@@ -321,37 +374,81 @@ namespace Multiplayer.Game
             return rootRect;
         }
 
-        static RectTransform BuildProductionPanel(Transform canvas, int uiLayer, Vector2 position)
+        // Bottom-left anchored container sized for a row of icon buttons.
+        static RectTransform BuildBar(Transform canvas, int uiLayer, string name, Vector2 position, int slots)
         {
-            GameObject panelObject = new GameObject("Production Panel");
-            panelObject.layer = uiLayer;
-            RectTransform panelRect = panelObject.AddComponent<RectTransform>();
-            panelRect.SetParent(canvas, false);
-            panelRect.anchorMin = new Vector2(0f, 1f);
-            panelRect.anchorMax = new Vector2(0f, 1f);
-            panelRect.pivot = new Vector2(0f, 1f);
-            panelRect.anchoredPosition = position;
-            panelRect.sizeDelta = new Vector2(ButtonSize.x, ButtonSize.y * 2f + ButtonSpacing);
-            return panelRect;
+            GameObject barObject = new GameObject(name);
+            barObject.layer = uiLayer;
+            RectTransform rect = barObject.AddComponent<RectTransform>();
+            rect.SetParent(canvas, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = new Vector2(slots * IconButtonSize + (slots - 1) * ButtonSpacing, IconButtonSize);
+            return rect;
         }
 
-        static Button BuildButton(Transform parent, int uiLayer, string labelText, Vector2 position)
+        static IconButton BuildIconButton(Transform parent, int uiLayer, string labelText, Sprite icon, Vector2 position)
         {
             GameObject buttonObject = new GameObject(labelText + " Button");
             buttonObject.layer = uiLayer;
             RectTransform buttonRect = buttonObject.AddComponent<RectTransform>();
             buttonRect.SetParent(parent, false);
-            buttonRect.anchorMin = new Vector2(0f, 1f);
-            buttonRect.anchorMax = new Vector2(0f, 1f);
-            buttonRect.pivot = new Vector2(0f, 1f);
+            buttonRect.anchorMin = Vector2.zero;
+            buttonRect.anchorMax = Vector2.zero;
+            buttonRect.pivot = Vector2.zero;
             buttonRect.anchoredPosition = position;
-            buttonRect.sizeDelta = ButtonSize;
+            buttonRect.sizeDelta = new Vector2(IconButtonSize, IconButtonSize);
+
+            Image background = buttonObject.AddComponent<Image>();
+            Button button = buttonObject.AddComponent<Button>();
+            button.targetGraphic = background;
+
+            GameObject iconObject = new GameObject("Icon");
+            iconObject.layer = uiLayer;
+            RectTransform iconRect = iconObject.AddComponent<RectTransform>();
+            iconRect.SetParent(buttonRect, false);
+            iconRect.anchorMin = new Vector2(0.5f, 1f);
+            iconRect.anchorMax = new Vector2(0.5f, 1f);
+            iconRect.pivot = new Vector2(0.5f, 1f);
+            iconRect.anchoredPosition = new Vector2(0f, -(IconButtonSize - IconSize - IconLabelHeight) * 0.5f);
+            iconRect.sizeDelta = new Vector2(IconSize, IconSize);
+            Image iconImage = iconObject.AddComponent<Image>();
+            iconImage.sprite = icon;
+            iconImage.preserveAspect = true;
+            iconImage.raycastTarget = false;
+            iconImage.enabled = icon != null;
+
+            Text label = CreateText(buttonRect, uiLayer, "Label", 16, TextAnchor.MiddleCenter);
+            label.text = labelText;
+            RectTransform labelRect = label.rectTransform;
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = new Vector2(1f, 0f);
+            labelRect.pivot = new Vector2(0.5f, 0f);
+            labelRect.anchoredPosition = Vector2.zero;
+            labelRect.sizeDelta = new Vector2(0f, IconLabelHeight);
+
+            return new IconButton(button, background, iconImage, label);
+        }
+
+        static Button BuildTextButton(Transform parent, int uiLayer, string labelText, Vector2 position, Vector2 size)
+        {
+            GameObject buttonObject = new GameObject(labelText + " Button");
+            buttonObject.layer = uiLayer;
+            RectTransform buttonRect = buttonObject.AddComponent<RectTransform>();
+            buttonRect.SetParent(parent, false);
+            buttonRect.anchorMin = Vector2.zero;
+            buttonRect.anchorMax = Vector2.zero;
+            buttonRect.pivot = Vector2.zero;
+            buttonRect.anchoredPosition = position;
+            buttonRect.sizeDelta = size;
 
             Image buttonImage = buttonObject.AddComponent<Image>();
             Button button = buttonObject.AddComponent<Button>();
             button.targetGraphic = buttonImage;
 
-            Text label = CreateText(buttonRect, uiLayer, "Label", 26, TextAnchor.MiddleCenter);
+            Text label = CreateText(buttonRect, uiLayer, "Label", 18, TextAnchor.MiddleCenter);
             label.text = labelText;
             RectTransform labelRect = label.rectTransform;
             labelRect.anchorMin = Vector2.zero;
