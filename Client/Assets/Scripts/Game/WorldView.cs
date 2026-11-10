@@ -159,6 +159,11 @@ namespace Multiplayer.Game
                 unit.SetHealth(state.Health);
                 unit.ActionState = (ActionState)state.ActionState;
                 unit.TargetEntityId = state.TargetEntityId;
+
+                EntityState next;
+                unit.NextActionState = buffer.TryGetNextState(state.EntityId, out next)
+                    ? (ActionState)next.ActionState
+                    : unit.ActionState;
             }
 
             if (units.Count != resolved.Count)

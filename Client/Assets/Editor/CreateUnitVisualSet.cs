@@ -50,6 +50,8 @@ namespace Multiplayer.EditorTools
                         existing.DeathClipSpeed = d.DeathClipSpeed;
                     if (existing.CorpseHoldSeconds <= 0f)
                         existing.CorpseHoldSeconds = d.CorpseHoldSeconds;
+                    if (existing.RunClipSpeed <= 0f)
+                        existing.RunClipSpeed = d.RunClipSpeed;
                     if (existing.IconZoom <= 0f)
                     {
                         existing.IconZoom = d.IconZoom;
@@ -96,6 +98,7 @@ namespace Multiplayer.EditorTools
             entry.CorpseHoldSeconds = corpseHold;
             entry.IconYaw = iconYaw;
             entry.IconZoom = 1f;
+            entry.RunClipSpeed = name == "Soldier" ? 1.3f : 1f;
 
             if (colliderFromBounds)
             {

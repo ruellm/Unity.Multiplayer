@@ -28,6 +28,9 @@ namespace Multiplayer.Game
         public float TurretTurnRate = 180f;
         public float DeathClipSpeed = 1f;
 
+        // Animator speed while the Run state plays. 0 marks an entry saved before this existed.
+        public float RunClipSpeed;
+
         // How long the detached death animation stays after its clip ends. 0 means no corpse hold.
         public float CorpseHoldSeconds;
     }

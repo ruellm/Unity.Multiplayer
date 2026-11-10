@@ -131,6 +131,29 @@ namespace Multiplayer.Tests
         }
 
         [Fact]
+        public void NextStateComesFromTheLaterSampleAndFromTheHeldOneOtherwise()
+        {
+            buffer.Push(Snapshots.At(10, 0f), 1.00f);
+            buffer.Push(Snapshots.At(11, 1f, 5f), 1.05f);
+
+            clock.Advance(1.025f + Delay);
+            EntityState next;
+            Assert.True(buffer.TryGetNextState(1, out next));
+            AssertDiscreteFieldsFrom(11, next);
+            AssertDiscreteFieldsFrom(10, StateOf(1));
+            Assert.True(buffer.TryGetNextState(2, out next));
+            AssertDiscreteFieldsFrom(11, next);
+
+            clock.Advance(5f);
+            Assert.True(buffer.TryGetNextState(1, out next));
+            AssertDiscreteFieldsFrom(11, next);
+
+            clock.Advance(0.90f + Delay);
+            Assert.True(buffer.TryGetNextState(1, out next));
+            AssertDiscreteFieldsFrom(10, next);
+        }
+
+        [Fact]
         public void EmptyBufferResolvesNoStates()
         {
             List<EntityState> resolved = new List<EntityState> { default };

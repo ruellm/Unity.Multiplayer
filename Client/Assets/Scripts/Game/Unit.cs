@@ -16,6 +16,9 @@ namespace Multiplayer.Game
         public int OwnerId;
         public UnitType UnitType;
         public ActionState ActionState;
+        // State of the later bracket sample. Drives animation and facing so they lead the position
+        // instead of trailing it by a tick.
+        public ActionState NextActionState;
         public int TargetEntityId;
         public Vec2 Position;
         public byte Yaw;

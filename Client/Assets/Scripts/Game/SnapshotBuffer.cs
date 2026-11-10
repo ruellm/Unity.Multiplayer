@@ -217,6 +217,20 @@ namespace Multiplayer.Game
             return true;
         }
 
+        // The later sample of the bracket, or the held sample. Discrete fields only, position is
+        // whatever that sample carries. Used for what a unit is about to do rather than what it did.
+        public bool TryGetNextState(int entityId, out EntityState state)
+        {
+            state = default;
+            if (from == null)
+                return false;
+
+            if (to != null && to.States.TryGetValue(entityId, out state))
+                return true;
+
+            return from.States.TryGetValue(entityId, out state);
+        }
+
         public void GetResolved(List<EntityState> results)
         {
             results.Clear();

@@ -16,8 +16,8 @@ MonoBehaviour:
   - Name: Soldier
     Prefab: {fileID: 3297120352512558458, guid: b2fef3d4a310a654e9f87de597ef56f2, type: 3}
     Icon: {fileID: 21300000, guid: c71c573f17038c748b730da91e5538c4, type: 3}
-    IconYaw: -135
-    IconZoom: 0
+    IconYaw: 15
+    IconZoom: 1
     Scale: 1.5
     ColliderCenter: {x: 0, y: 0.5, z: 0}
     ColliderSize: {x: 0.45, y: 1, z: 0.45}
@@ -26,12 +26,13 @@ MonoBehaviour:
     TurretPivotName: 
     TurretTurnRate: 180
     DeathClipSpeed: 1
-    CorpseHoldSeconds: 0
+    RunClipSpeed: 1.3
+    CorpseHoldSeconds: 3
   - Name: Tank
     Prefab: {fileID: 4045101891268202020, guid: 88b0dd52fc313654e931b7a7c84af6a7, type: 3}
     Icon: {fileID: 21300000, guid: c18c472c14ab8024f8b2b44bc034d290, type: 3}
-    IconYaw: 0
-    IconZoom: 0
+    IconYaw: -35
+    IconZoom: 1
     Scale: 2.6
     ColliderCenter: {x: 0, y: 0.263864, z: 0.11655453}
     ColliderSize: {x: 0.537467, y: 0.52772796, z: 1}
@@ -40,12 +41,13 @@ MonoBehaviour:
     TurretPivotName: TurretPivot
     TurretTurnRate: 180
     DeathClipSpeed: 1
+    RunClipSpeed: 1
     CorpseHoldSeconds: 0
   - Name: HQ
     Prefab: {fileID: 5899154904130406024, guid: e25851881659f3240811df3efb8d1acd, type: 3}
     Icon: {fileID: 21300000, guid: bb67e8d3a5946b1488f995ae50b7ee02, type: 3}
-    IconYaw: 0
-    IconZoom: 0
+    IconYaw: -35
+    IconZoom: 1
     Scale: 5
     ColliderCenter: {x: 0, y: 0.35031554, z: 0}
     ColliderSize: {x: 1, y: 0.70063096, z: 0.97375405}
@@ -54,12 +56,13 @@ MonoBehaviour:
     TurretPivotName: 
     TurretTurnRate: 180
     DeathClipSpeed: 1
+    RunClipSpeed: 1
     CorpseHoldSeconds: 0
   - Name: Tower
     Prefab: {fileID: 3794619281472142177, guid: 6d7fcaf3ea9f26848aba103c7d6a99f4, type: 3}
     Icon: {fileID: 21300000, guid: 18027c8871a4bb841a22acd979755cc5, type: 3}
-    IconYaw: 0
-    IconZoom: 0
+    IconYaw: -35
+    IconZoom: 1
     Scale: 3
     ColliderCenter: {x: 0, y: 0.462628, z: 0.0637185}
     ColliderSize: {x: 0.927243, y: 0.925256, z: 1}
@@ -68,12 +71,13 @@ MonoBehaviour:
     TurretPivotName: TurretPivot
     TurretTurnRate: 180
     DeathClipSpeed: 1
+    RunClipSpeed: 1
     CorpseHoldSeconds: 0
   - Name: Wall
     Prefab: {fileID: 6236663006647131397, guid: c0bf25703368d9543a5ffcc7573a01a6, type: 3}
     Icon: {fileID: 21300000, guid: 2586ba1db0b3c2d47b6bf648ee1f574c, type: 3}
-    IconYaw: 0
-    IconZoom: 0
+    IconYaw: -35
+    IconZoom: 1
     Scale: 5
     ColliderCenter: {x: 0, y: 0.1496265, z: 0.000000007450581}
     ColliderSize: {x: 1, y: 0.299253, z: 0.160083}
@@ -82,4 +86,5 @@ MonoBehaviour:
     TurretPivotName: 
     TurretTurnRate: 180
     DeathClipSpeed: 1
+    RunClipSpeed: 1
     CorpseHoldSeconds: 0

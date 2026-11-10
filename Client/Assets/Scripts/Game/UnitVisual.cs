@@ -14,6 +14,9 @@ namespace Multiplayer.Game
         const float CollapseFraction = 0.9f;
         const float CollapseSpin = 200f;
         const float CollapseRoll = 80f;
+        const float RunFireHoldSeconds = 0.2f;
+        const int RunState = 1;
+        const int FireState = 2;
         const float FlashDuration = 0.3f;
         const float BurstScale = 0.4f;
         const float MinDirectionSqr = 0.00000001f;
@@ -40,6 +43,7 @@ namespace Multiplayer.Game
         Vector3 turretRestPosition;
         float turretTurnRate;
         float deathClipSpeed;
+        float runClipSpeed;
         float corpseHoldSeconds;
         bool isStructure;
         FiringPhase firing;
@@ -51,6 +55,8 @@ namespace Multiplayer.Game
         float turretYaw;
         float recoil;
         int appliedState = -1;
+        int pendingState = -1;
+        float pendingFor;
         bool appliedDead;
 
         bool dying;
@@ -86,6 +92,7 @@ namespace Multiplayer.Game
             restHeight = bodyTransform.localPosition.y;
             turretTurnRate = entry.TurretTurnRate;
             deathClipSpeed = entry.DeathClipSpeed;
+            runClipSpeed = entry.RunClipSpeed > 0f ? entry.RunClipSpeed : 1f;
             corpseHoldSeconds = entry.CorpseHoldSeconds;
 
             if (turret != null)
@@ -155,15 +162,19 @@ namespace Multiplayer.Game
             ActionState state = unit.ActionState;
             bool aiming = (state == ActionState.MovingToAttack || state == ActionState.Attacking) && target != null;
 
+            // Facing and animation read the later sample, so they turn and start running on the
+            // tick the position begins to move instead of one tick after.
+            ActionState shown = unit.NextActionState;
+
             if (!isStructure)
             {
-                bool moving = state == ActionState.Moving || state == ActionState.MovingToAttack;
+                bool moving = shown == ActionState.Moving || shown == ActionState.MovingToAttack;
 
                 Vector3 travel = position - lastPosition;
                 lastPosition = position;
                 if (moving)
                     FaceAlong(travel);
-                else if (state == ActionState.Attacking && target != null && turret == null)
+                else if (shown == ActionState.Attacking && target != null && turret == null)
                     FaceAlong(ToWorld(target.Position) - position);
 
                 yaw = Mathf.MoveTowardsAngle(yaw, desiredYaw, TurnSpeed * dt);
@@ -176,7 +187,7 @@ namespace Multiplayer.Game
                 UpdateTurret(dt, aiming ? target : null);
 
             if (animator != null)
-                UpdateAnimator(state);
+                UpdateAnimator(shown, dt);
 
             UpdateTracer(dt, state);
         }
@@ -202,18 +213,35 @@ namespace Multiplayer.Game
         }
 
         // Parameters are only pushed once the Animator is initialized. Until then the applied value
-        // stays stale, so the next frame pushes it again.
-        void UpdateAnimator(ActionState state)
+        // stays stale, so the next frame pushes it again. A swap between Run and Fire waits until
+        // the new state has been asked for continuously for a short hold, so a chase that flickers
+        // between closing and firing does not restart the clips every tick.
+        void UpdateAnimator(ActionState state, float dt)
         {
             if (!animator.isInitialized)
                 return;
 
-            int value = state == ActionState.Idle ? 0 : (state == ActionState.Attacking ? 2 : 1);
+            int value = state == ActionState.Idle ? 0 : (state == ActionState.Attacking ? FireState : RunState);
+            if (value != pendingState)
+            {
+                pendingState = value;
+                pendingFor = 0f;
+            }
+            else
+            {
+                pendingFor += dt;
+            }
+
             if (value == appliedState)
+                return;
+
+            bool runFireSwap = (appliedState == RunState && value == FireState) || (appliedState == FireState && value == RunState);
+            if (runFireSwap && pendingFor < RunFireHoldSeconds)
                 return;
 
             appliedState = value;
             animator.SetInteger(StateId, value);
+            animator.speed = value == RunState ? runClipSpeed : 1f;
         }
 
         void BeginDying(RenderClock clock)
