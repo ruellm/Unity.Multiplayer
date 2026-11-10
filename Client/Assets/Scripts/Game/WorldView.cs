@@ -10,8 +10,19 @@ namespace Multiplayer.Game
     {
         const float HealthBarGap = 0.25f;
         const float ExplosionHeight = 0.5f;
+        const float ExplosionDefaultRadius = 1.5f;
+        const float SamePlaceTolerance = 0.01f;
+        const float RemovedStructureMemory = 3f;
+
+        struct RemovedStructure
+        {
+            public Vec2 Position;
+            public float FootprintRadius;
+            public float Time;
+        }
 
         readonly Dictionary<int, Unit> units = new Dictionary<int, Unit>();
+        readonly List<RemovedStructure> removedStructures = new List<RemovedStructure>();
         readonly HashSet<int> seen = new HashSet<int>();
         readonly List<int> removeScratch = new List<int>();
         readonly List<EntityState> resolved = new List<EntityState>();
@@ -23,7 +34,7 @@ namespace Multiplayer.Game
 
         UnitVisualSet visuals;
         Material healthBarMaterial;
-        Material effectMaterial;
+        FxPlayer fx;
         PlayerRoster roster;
         Camera worldCamera;
 
@@ -60,11 +71,11 @@ namespace Multiplayer.Game
             clock = new RenderClock(buffer);
         }
 
-        public void Initialize(UnitVisualSet visualSet, Material healthBar, Material effect, PlayerRoster playerRoster, Camera camera)
+        public void Initialize(UnitVisualSet visualSet, Material healthBar, FxPlayer effects, PlayerRoster playerRoster, Camera camera)
         {
             visuals = visualSet;
             healthBarMaterial = healthBar;
-            effectMaterial = effect;
+            fx = effects;
             roster = playerRoster;
             worldCamera = camera;
 
@@ -112,6 +123,9 @@ namespace Multiplayer.Game
                 Remove(removeScratch[i]);
 
             DestroyCorpses();
+            removedStructures.Clear();
+            if (fx != null)
+                fx.Clear();
             buffer.Clear();
             clock.Reset();
             events.Clear();
@@ -208,9 +222,36 @@ namespace Multiplayer.Game
                     break;
                 case GameEventType.Explosion:
                     Vec2 at = gameEvent.Explosion.Position;
-                    ExplosionEffect.Spawn(new Vector3(at.X, ExplosionHeight, at.Z), effectMaterial);
+                    if (fx != null)
+                        fx.PlayExplosion(new Vector3(at.X, ExplosionHeight, at.Z), ExplosionRadius(at));
                     break;
             }
+        }
+
+        // The event names no entity. The footprint comes from the structure standing there, or
+        // from one removed moments ago, since removal and the event share a tick.
+        float ExplosionRadius(Vec2 at)
+        {
+            foreach (Unit unit in units.Values)
+            {
+                if (unit.UnitType.IsStructure() && SamePlace(unit.Position, at))
+                    return UnitDefs.Get(unit.UnitType).FootprintRadius;
+            }
+
+            for (int i = removedStructures.Count - 1; i >= 0; i--)
+            {
+                if (Time.time - removedStructures[i].Time > RemovedStructureMemory)
+                    removedStructures.RemoveAt(i);
+                else if (SamePlace(removedStructures[i].Position, at))
+                    return removedStructures[i].FootprintRadius;
+            }
+
+            return ExplosionDefaultRadius;
+        }
+
+        static bool SamePlace(Vec2 a, Vec2 b)
+        {
+            return Mathf.Abs(a.X - b.X) <= SamePlaceTolerance && Mathf.Abs(a.Z - b.Z) <= SamePlaceTolerance;
         }
 
         Unit Create(EntityState state)
@@ -265,7 +306,7 @@ namespace Multiplayer.Game
             unit.OwnerColor = roster.GetColor(state.OwnerId);
 
             unit.Visual = root.AddComponent<UnitVisual>();
-            unit.Visual.Initialize(unit, body.transform, modelTransform, turret, muzzle, entry, effectMaterial, clock.StateTick);
+            unit.Visual.Initialize(unit, body.transform, modelTransform, turret, muzzle, entry, fx, clock.StateTick);
             return unit;
         }
 
@@ -344,6 +385,16 @@ namespace Multiplayer.Game
                 return;
 
             units.Remove(entityId);
+
+            if (unit.UnitType.IsStructure())
+            {
+                removedStructures.Add(new RemovedStructure
+                {
+                    Position = unit.Position,
+                    FootprintRadius = UnitDefs.Get(unit.UnitType).FootprintRadius,
+                    Time = Time.time
+                });
+            }
 
             Action<Unit> handler = EntityRemoved;
             if (handler != null)

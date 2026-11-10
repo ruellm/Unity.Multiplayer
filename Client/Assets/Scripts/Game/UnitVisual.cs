@@ -1,6 +1,5 @@
 using Multiplayer.Protocol;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace Multiplayer.Game
 {
@@ -9,8 +8,6 @@ namespace Multiplayer.Game
         const float TurnSpeed = 540f;
         const float RecoilDuration = 0.15f;
         const float TurretRecoilDistance = 0.03f;
-        const float TracerDuration = 0.15f;
-        const float TracerWidth = 0.07f;
         const float CollapseFraction = 0.9f;
         const float CollapseSpin = 200f;
         const float CollapseRoll = 80f;
@@ -20,13 +17,10 @@ namespace Multiplayer.Game
         const float FlashDuration = 0.3f;
         const float BurstScale = 0.4f;
         const float MinDirectionSqr = 0.00000001f;
-        const int IgnoreRaycastLayer = 2;
         const string DeadName = "Dead";
 
-        static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         static readonly int StateId = Animator.StringToHash("State");
         static readonly int DeadId = Animator.StringToHash(DeadName);
-        static readonly Color TracerColor = new Color(1f, 0.9f, 0.4f, 1f);
         static readonly Color ShotFlashColor = Color.white;
         static readonly Color ExplosionFlashColor = new Color(1f, 0.5f, 0.1f);
 
@@ -36,7 +30,7 @@ namespace Multiplayer.Game
         Transform turret;
         Transform muzzle;
         Animator animator;
-        Material effectMaterial;
+        FxPlayer fx;
         Vector3 restScale;
         float restHeight;
         Quaternion turretRestRotation;
@@ -65,11 +59,6 @@ namespace Multiplayer.Game
         float flash;
         float burst;
 
-        LineRenderer tracer;
-        MaterialPropertyBlock tracerBlock;
-        Unit tracerTarget;
-        float tracerAge;
-
         public bool CanFire
         {
             get { return firing.CooldownTicks > 0; }
@@ -80,14 +69,14 @@ namespace Multiplayer.Game
             get { return firing; }
         }
 
-        public void Initialize(Unit owner, Transform bodyTransform, Transform modelTransform, Transform turretPivot, Transform muzzleTransform, UnitVisualEntry entry, Material effectLineMaterial, uint stateTick)
+        public void Initialize(Unit owner, Transform bodyTransform, Transform modelTransform, Transform turretPivot, Transform muzzleTransform, UnitVisualEntry entry, FxPlayer effects, uint stateTick)
         {
             unit = owner;
             body = bodyTransform;
             model = modelTransform;
             turret = turretPivot;
             muzzle = muzzleTransform;
-            effectMaterial = effectLineMaterial;
+            fx = effects;
             restScale = bodyTransform.localScale;
             restHeight = bodyTransform.localPosition.y;
             turretTurnRate = entry.TurretTurnRate;
@@ -188,8 +177,6 @@ namespace Multiplayer.Game
 
             if (animator != null)
                 UpdateAnimator(shown, dt);
-
-            UpdateTracer(dt, state);
         }
 
         // Yaw around the pivot's rest up axis, toward the target or back to rest. Recoil kicks the
@@ -251,8 +238,6 @@ namespace Multiplayer.Game
 
             dying = true;
             dyingStartTick = clock.StateTick;
-            if (tracer != null)
-                tracer.enabled = false;
         }
 
         // Timed on the render clock from the tick Dying first showed, and finished a little before
@@ -281,6 +266,9 @@ namespace Multiplayer.Game
             appliedDead = true;
             animator.SetBool(DeadId, true);
             animator.speed = deathClipSpeed;
+
+            if (fx != null)
+                fx.PlayDustPuff(transform.position);
         }
 
         // Hands the animated model over as a scene-root corpse once Dead has been applied. The caller
@@ -313,59 +301,22 @@ namespace Multiplayer.Game
                 desiredYaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
         }
 
+        // Tanks lob a shell, everything else fires a tracer. Both land on the target's collider center.
         void Fire(Unit target)
         {
             recoil = 1f;
-
-            if (tracer == null)
-                tracer = CreateTracer();
-
-            tracerTarget = target;
-            tracerAge = 0f;
-            tracer.enabled = true;
-        }
-
-        void UpdateTracer(float dt, ActionState state)
-        {
-            if (tracer == null || !tracer.enabled)
+            if (fx == null)
                 return;
 
-            tracerAge += dt;
-            if (state != ActionState.Attacking || tracerTarget == null || tracerAge >= TracerDuration)
-            {
-                tracer.enabled = false;
-                tracerTarget = null;
-                return;
-            }
+            Vector3 origin = muzzle != null ? muzzle.position : unit.Body.bounds.center;
+            Quaternion rotation = muzzle != null ? muzzle.rotation : body.rotation;
+            Vector3 targetPoint = target.Body.bounds.center;
 
-            // Alpha needs the transparent material variant. The shrinking width fades it regardless.
-            float remaining = 1f - tracerAge / TracerDuration;
-            Color color = TracerColor;
-            color.a = remaining;
-            tracerBlock.SetColor(BaseColorId, color);
-            tracer.SetPropertyBlock(tracerBlock);
-            tracer.startWidth = TracerWidth * remaining;
-            tracer.endWidth = TracerWidth * remaining;
-            tracer.SetPosition(0, muzzle != null ? muzzle.position : unit.Body.bounds.center);
-            tracer.SetPosition(1, tracerTarget.Body.bounds.center);
-        }
-
-        LineRenderer CreateTracer()
-        {
-            GameObject lineObject = new GameObject("Tracer");
-            lineObject.layer = IgnoreRaycastLayer;
-            lineObject.transform.SetParent(transform, false);
-
-            LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.sharedMaterial = effectMaterial;
-            line.useWorldSpace = true;
-            line.positionCount = 2;
-            line.shadowCastingMode = ShadowCastingMode.Off;
-            line.receiveShadows = false;
-            line.enabled = false;
-
-            tracerBlock = new MaterialPropertyBlock();
-            return line;
+            fx.PlayMuzzle(unit.UnitType, origin, rotation);
+            if (unit.UnitType == UnitType.Tank)
+                fx.FireShell(origin, target, targetPoint);
+            else
+                fx.FireTracer(origin, target, targetPoint);
         }
 
         static Vector3 ToWorld(Vec2 position)

@@ -52,6 +52,7 @@ namespace Multiplayer.Game
         ProductionController production;
         DebugOverlay debugOverlay;
         NetworkClient network;
+        FxPlayer fx;
         WorldView worldView;
         readonly PlayerRoster roster = new PlayerRoster();
         Text statusText;
@@ -82,7 +83,6 @@ namespace Multiplayer.Game
             Material ringMaterial = CreateRingMaterial(unlitShader);
             Material healthBarMaterial = CreateMaterial(unlitShader, "Health Bar", Color.white);
             Material attackLineMaterial = CreateMaterial(unlitShader, "Attack Line", AttackLineColor);
-            Material effectMaterial = CreateEffectMaterial(unlitShader);
 
             BuildLight();
             BuildGround(groundMaterial);
@@ -96,11 +96,13 @@ namespace Multiplayer.Game
             selection = gameObject.AddComponent<SelectionController>();
             production = gameObject.AddComponent<ProductionController>();
             network = gameObject.AddComponent<NetworkClient>();
+            fx = gameObject.AddComponent<FxPlayer>();
             worldView = gameObject.AddComponent<WorldView>();
             debugOverlay = gameObject.AddComponent<DebugOverlay>();
 
             worldInput.Initialize(worldCamera);
-            worldView.Initialize(visuals, healthBarMaterial, effectMaterial, roster, worldCamera);
+            fx.Initialize();
+            worldView.Initialize(visuals, healthBarMaterial, fx, roster, worldCamera);
             placement.Initialize(ui.PlaceHQ, ui.PlaceTower, ui.PlaceWall, ui.Rotate, ui.Cancel, visuals, ringMaterial, worldInput, network, worldView);
             selection.Initialize(ringMaterial, attackLineMaterial, network, worldView);
             production.Initialize(ui.ProductionBar, ui.BuildSoldier, ui.BuildTank, selection, network);
@@ -225,20 +227,6 @@ namespace Multiplayer.Game
             material.SetFloat("_Cutoff", 0.5f);
             material.EnableKeyword("_ALPHATEST_ON");
             material.renderQueue = (int)RenderQueue.AlphaTest;
-            return material;
-        }
-
-        // Shared by tracers and explosions. Each tints and fades it through its own property block.
-        static Material CreateEffectMaterial(Shader unlitShader)
-        {
-            Material material = CreateMaterial(unlitShader, "Effect", Color.white);
-            material.SetFloat("_Surface", 1f);
-            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-            material.SetFloat("_ZWrite", 0f);
-            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            material.SetOverrideTag("RenderType", "Transparent");
-            material.renderQueue = (int)RenderQueue.Transparent;
             return material;
         }
 

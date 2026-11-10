@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ae761252eb32124193c50046aee70c7, type: 3}
+  m_Name: FxSet
+  m_EditorClassIdentifier: Assembly-CSharp::Multiplayer.Game.FxSet
+  muzzleSmall: {fileID: 898620420457202431, guid: 28c13b00cfa136e4aa8198098acd72a8, type: 3}
+  muzzleTank: {fileID: 3541155914323430042, guid: c23c0f5c536393245a29c1edeea1cf98, type: 3}
+  tracer: {fileID: 248031371761331702, guid: 4fb81981b90b9994195ac469760ff5a8, type: 3}
+  shell: {fileID: 7263461662881015204, guid: ad746df726dbb9f4e8597ca6015e659c, type: 3}
+  impactSmall: {fileID: 5804134744555802853, guid: 94e41f060a22ec747a1fa9578097ef06, type: 3}
+  impactTank: {fileID: 1364121725104476873, guid: 5920103dd98dd054ca23399c106284d3, type: 3}
+  explosion: {fileID: 4040574454332596003, guid: 5d7bfbb86b393f3429e95c907b41c89f, type: 3}
+  dustPuff: {fileID: 2185679875750395814, guid: 0e2b0e612924843418b2e923942801bb, type: 3}
+  tracerSpeed: 120
+  shellTravelTime: 0.2
