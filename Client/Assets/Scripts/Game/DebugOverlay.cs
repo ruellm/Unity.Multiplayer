@@ -36,6 +36,8 @@ namespace Multiplayer.Game
         int shownQueued = -1;
         int shownReleased = -1;
         int shownDropped = -1;
+        int shownStarved = -1;
+        long shownOffsetMs = long.MinValue;
         bool visible;
 
         public void Initialize(RectTransform overlayRoot, Font labelFont, Camera camera, WorldView view)
@@ -72,7 +74,7 @@ namespace Multiplayer.Game
             if (!visible)
                 return;
 
-            WriteEvents(worldView.Events);
+            WriteEvents(worldView.Events, worldView.Clock);
 
             float scale = canvas.scaleFactor;
             foreach (Unit unit in worldView.Units)
@@ -113,14 +115,18 @@ namespace Multiplayer.Game
             pool.Push(label);
         }
 
-        void WriteEvents(EventQueue events)
+        void WriteEvents(EventQueue events, RenderClock clock)
         {
-            if (events.Count == shownQueued && events.ReleasedCount == shownReleased && events.DroppedCount == shownDropped)
+            long offsetMs = (long)System.Math.Round(clock.Offset * 1000.0);
+            if (events.Count == shownQueued && events.ReleasedCount == shownReleased && events.DroppedCount == shownDropped
+                && clock.StarvedFrames == shownStarved && offsetMs == shownOffsetMs)
                 return;
 
             shownQueued = events.Count;
             shownReleased = events.ReleasedCount;
             shownDropped = events.DroppedCount;
+            shownStarved = clock.StarvedFrames;
+            shownOffsetMs = offsetMs;
 
             string last = "none";
             if (events.ReleasedCount > 0)
@@ -139,7 +145,9 @@ namespace Multiplayer.Game
                 last += ", tick " + gameEvent.Tick;
             }
 
-            eventText.text = "Events queued " + shownQueued + ", released " + shownReleased + ", dropped " + shownDropped
+            eventText.text = "Clock offset " + (offsetMs / 1000.0).ToString("0.000") + " s, delay " + RenderClock.DelayTicks
+                + " ticks (" + (RenderClock.Delay * 1000f).ToString("0") + " ms), starved frames " + shownStarved
+                + "\nEvents queued " + shownQueued + ", released " + shownReleased + ", dropped " + shownDropped
                 + "\nLast released: " + last;
         }
 
@@ -153,7 +161,7 @@ namespace Multiplayer.Game
             rect.anchorMax = Vector2.zero;
             rect.pivot = Vector2.zero;
             rect.anchoredPosition = new Vector2(20f, 20f);
-            rect.sizeDelta = new Vector2(900f, 52f);
+            rect.sizeDelta = new Vector2(900f, 78f);
 
             Text text = textObject.AddComponent<Text>();
             text.font = font;

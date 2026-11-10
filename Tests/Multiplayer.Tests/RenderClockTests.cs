@@ -93,7 +93,7 @@ namespace Multiplayer.Tests
         }
 
         [Fact]
-        public void LateSnapshotDoesNotPullTickAheadOfPositions()
+        public void LateSnapshotDoesNotStretchTheBracket()
         {
             buffer.Push(Snapshots.At(10, 10f), 1.00f);
             buffer.Push(Snapshots.At(11, 11f), 1.08f);
@@ -101,9 +101,10 @@ namespace Multiplayer.Tests
 
             clock.Advance(1.04f + Delay);
 
-            // Extrapolating back from tick 12 at the nominal rate would report 10.8 here.
-            Assert.InRange(XOf(1), 10.5f - Tolerance, 10.5f + Tolerance);
-            Assert.InRange(clock.RenderTick, 10.5f - Tolerance, 10.5f + Tolerance);
+            // Arrival spacing would have put this at 10.5. On the tick timeline the late packet only
+            // nudges the offset, so the point lands near 10.8 and position and tick agree exactly.
+            Assert.InRange(clock.RenderTick, 10.7f, 10.85f);
+            Assert.InRange(XOf(1), clock.RenderTick - Tolerance, clock.RenderTick + Tolerance);
         }
 
         [Fact]
@@ -143,8 +144,9 @@ namespace Multiplayer.Tests
             {
                 Assert.True(clock.Advance(1.2f + i * 0.5f));
                 Assert.Equal(1f, XOf(1));
-                Assert.Equal(1.05f, clock.RenderTime);
                 Assert.Equal(11f, clock.RenderTick);
+                Assert.True(clock.Starved);
+                Assert.Equal(i + 1, clock.StarvedFrames);
                 Assert.False(clock.HasReached(12));
             }
         }

@@ -4,28 +4,20 @@ namespace Multiplayer.Game
 {
     public sealed class RenderClock
     {
-        public const float Delay = (float)NetConfig.InterpolationDelayTicks / NetConfig.TickRate;
+        public const int DelayTicks = NetConfig.InterpolationDelayTicks;
+        public const float Delay = (float)DelayTicks / NetConfig.TickRate;
+        const double TickSnap = 0.0001;
 
         readonly SnapshotBuffer buffer;
-        float localTime;
         bool resolved;
         uint newestTick;
         float ticksBehindNewest;
         uint stateTick;
+        int starvedFrames;
 
         public RenderClock(SnapshotBuffer snapshotBuffer)
         {
             buffer = snapshotBuffer;
-        }
-
-        public float RenderTime
-        {
-            get
-            {
-                float time = localTime - Delay;
-                // Starved: hold at the newest snapshot instead of running past it.
-                return buffer.Count > 0 && time > buffer.NewestTime ? buffer.NewestTime : time;
-            }
         }
 
         public float RenderTick
@@ -40,15 +32,47 @@ namespace Multiplayer.Game
             get { return stateTick; }
         }
 
-        // Resolves the buffer at the new render time, so positions read from it afterwards and the
+        public double Offset
+        {
+            get { return buffer.Offset; }
+        }
+
+        // Frames drawn past the newest snapshot, holding it instead of extrapolating.
+        public int StarvedFrames
+        {
+            get { return starvedFrames; }
+        }
+
+        public bool Starved
+        {
+            get { return resolved && buffer.Starved; }
+        }
+
+        public bool Holding
+        {
+            get { return resolved && buffer.Holding; }
+        }
+
+        // Local time mapped onto the server tick timeline, minus the interpolation delay. A result
+        // within microseconds of a whole tick is that tick, so float noise cannot leave a snapshot
+        // one hair short of reached.
+        public double RenderTickFor(float time)
+        {
+            double tick = (time - buffer.Offset) / SnapshotBuffer.TickLength - DelayTicks;
+            double whole = System.Math.Round(tick);
+            return System.Math.Abs(tick - whole) < TickSnap ? whole : tick;
+        }
+
+        // Resolves the buffer at the new render tick, so positions read from it afterwards and the
         // tick reported here come from one bracketing. Both stay fixed until the next Advance.
         public bool Advance(float time)
         {
-            localTime = time;
-            resolved = buffer.Resolve(RenderTime);
+            resolved = buffer.HasOffset && buffer.Resolve(RenderTickFor(time));
             newestTick = buffer.NewestTick;
             ticksBehindNewest = buffer.TicksBehindNewest;
             stateTick = buffer.ResolvedTick;
+            if (resolved && buffer.Starved)
+                starvedFrames++;
             return resolved;
         }
 
@@ -67,6 +91,7 @@ namespace Multiplayer.Game
             newestTick = 0;
             ticksBehindNewest = 0f;
             stateTick = 0;
+            starvedFrames = 0;
         }
     }
 }

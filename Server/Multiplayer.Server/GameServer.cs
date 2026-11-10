@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -15,6 +16,49 @@ namespace Multiplayer.Server
         const float WorldHalfExtent = Footprint.WorldHalfExtent;
         const int MaxEntitiesPerPlayer = 50;
         const float FixedDt = 1f / NetConfig.TickRate;
+        const int SpinMarginMs = 2;
+        const int MaxLagTicks = 2;
+        const int StatsPeriodSeconds = 10;
+
+        // Interval statistics between two reports.
+        sealed class TickStats
+        {
+            int count;
+            double min = double.MaxValue;
+            double max;
+            double sum;
+            double sumSquares;
+
+            public void Add(double ms)
+            {
+                count++;
+                if (ms < min) min = ms;
+                if (ms > max) max = ms;
+                sum += ms;
+                sumSquares += ms * ms;
+            }
+
+            public string Report()
+            {
+                if (count == 0)
+                    return "Tick stats: no ticks";
+
+                double mean = sum / count;
+                double variance = Math.Max(0.0, sumSquares / count - mean * mean);
+                return string.Format(CultureInfo.InvariantCulture,
+                    "Tick stats over {0} ticks: mean {1:F2} ms, min {2:F2} ms, max {3:F2} ms, stddev {4:F2} ms",
+                    count, mean, min, max, Math.Sqrt(variance));
+            }
+
+            public void Reset()
+            {
+                count = 0;
+                min = double.MaxValue;
+                max = 0.0;
+                sum = 0.0;
+                sumSquares = 0.0;
+            }
+        }
 
         readonly EventBasedNetListener listener = new EventBasedNetListener();
         readonly NetManager net;
@@ -23,10 +67,16 @@ namespace Multiplayer.Server
         readonly NetDataWriter writer = new NetDataWriter();
         readonly WorldSnapshotMessage snapshot = new WorldSnapshotMessage();
         readonly GameEventBatchMessage eventBatch = new GameEventBatchMessage();
+        readonly TickStats tickStats;
         uint tick;
 
-        public GameServer()
+        public GameServer() : this(false)
         {
+        }
+
+        public GameServer(bool reportTickStats)
+        {
+            tickStats = reportTickStats ? new TickStats() : null;
             net = new NetManager(listener);
             listener.ConnectionRequestEvent += OnConnectionRequest;
             listener.PeerConnectedEvent += OnPeerConnected;
@@ -47,29 +97,70 @@ namespace Multiplayer.Server
             return true;
         }
 
+        // Every tick has an absolute deadline, origin + index * step. The loop sleeps until shortly
+        // before it and spins the rest. Sleeps overshoot by the OS timer granularity, so the worst
+        // overshoot seen so far is taken off the sleep as well and covered by spinning.
         public void Run(ManualResetEventSlim stopRequested)
         {
-            long ticksPerStep = Stopwatch.Frequency / NetConfig.TickRate;
+            long frequency = Stopwatch.Frequency;
+            long step = frequency / NetConfig.TickRate;
+            long spinMargin = frequency * SpinMarginMs / 1000;
+            long maxLag = step * MaxLagTicks;
+            long statsPeriod = frequency * StatsPeriodSeconds;
+
             Stopwatch clock = Stopwatch.StartNew();
-            long nextTick = clock.ElapsedTicks;
+            long origin = clock.ElapsedTicks;
+            long index = 0;
+            long sleepSlop = 0;
+            long lastTickAt = -1;
+            long nextStatsAt = origin + statsPeriod;
 
             while (!stopRequested.IsSet)
             {
-                long now = clock.ElapsedTicks;
-                if (now < nextTick)
+                long deadline = origin + index * step;
+                long remaining = deadline - clock.ElapsedTicks;
+
+                if (remaining > spinMargin)
                 {
-                    int waitMs = (int)((nextTick - now) * 1000 / Stopwatch.Frequency);
-                    if (waitMs > 1)
-                        stopRequested.Wait(waitMs - 1);
-                    continue;
+                    int sleepMs = (int)((remaining - spinMargin - sleepSlop) * 1000 / frequency);
+                    if (sleepMs > 0)
+                    {
+                        long before = clock.ElapsedTicks;
+                        stopRequested.Wait(sleepMs);
+                        long overshoot = clock.ElapsedTicks - before - sleepMs * frequency / 1000;
+                        if (overshoot > sleepSlop)
+                            sleepSlop = Math.Min(overshoot, step / 2);
+                        continue;
+                    }
+                }
+
+                while (clock.ElapsedTicks < deadline)
+                    Thread.SpinWait(50);
+
+                long now = clock.ElapsedTicks;
+                if (now - deadline > maxLag)
+                {
+                    Log("Fell " + (now - deadline) * 1000 / frequency + " ms behind the tick schedule, resyncing instead of catching up");
+                    origin = now - index * step;
                 }
 
                 Tick();
-                nextTick += ticksPerStep;
 
-                // Fell far behind (debugger pause, machine sleep): resync instead of bursting ticks.
-                if (now - nextTick > ticksPerStep * NetConfig.TickRate)
-                    nextTick = now;
+                if (tickStats != null)
+                {
+                    if (lastTickAt >= 0)
+                        tickStats.Add((now - lastTickAt) * 1000.0 / frequency);
+                    lastTickAt = now;
+
+                    if (now >= nextStatsAt)
+                    {
+                        Log(tickStats.Report());
+                        tickStats.Reset();
+                        nextStatsAt += statsPeriod;
+                    }
+                }
+
+                index++;
             }
         }
 

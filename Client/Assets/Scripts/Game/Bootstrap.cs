@@ -59,6 +59,8 @@ namespace Multiplayer.Game
         void Awake()
         {
             Application.runInBackground = true;
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 60;
 
             Shader litShader = FindShader(LitShaderName);
             Shader unlitShader = FindShader(UnlitShaderName);

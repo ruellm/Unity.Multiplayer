@@ -1,18 +1,23 @@
+using System;
 using System.Collections.Generic;
 using Multiplayer.Protocol;
 
 namespace Multiplayer.Game
 {
+    // Samples sit on the server tick timeline. Arrival times only feed the smoothed offset that
+    // maps local time onto that timeline, so arrival jitter never changes the spacing of samples.
     public sealed class SnapshotBuffer
     {
         sealed class Sample
         {
             public uint Tick;
-            public float Time;
             public readonly Dictionary<int, EntityState> States = new Dictionary<int, EntityState>();
         }
 
+        public const double TickLength = 1.0 / NetConfig.TickRate;
         const int Capacity = 8;
+        const double OffsetAlpha = 0.05;
+        const double OffsetResetThreshold = 0.25;
 
         readonly List<Sample> samples = new List<Sample>(Capacity);
         readonly Stack<Sample> pool = new Stack<Sample>(Capacity);
@@ -22,6 +27,10 @@ namespace Multiplayer.Game
         float blend;
         float ticksBehindNewest;
         uint resolvedTick;
+        bool starved;
+        double offset;
+        bool hasOffset;
+        int offsetResets;
 
         public int Count
         {
@@ -33,9 +42,25 @@ namespace Multiplayer.Game
             get { return samples.Count > 0 ? samples[samples.Count - 1].Tick : 0; }
         }
 
-        public float NewestTime
+        public uint OldestTick
         {
-            get { return samples.Count > 0 ? samples[samples.Count - 1].Time : 0f; }
+            get { return samples.Count > 0 ? samples[0].Tick : 0; }
+        }
+
+        // Local time at which server tick 0 would have arrived. Local time minus this is tick time.
+        public double Offset
+        {
+            get { return offset; }
+        }
+
+        public bool HasOffset
+        {
+            get { return hasOffset; }
+        }
+
+        public int OffsetResets
+        {
+            get { return offsetResets; }
         }
 
         // How far the last resolved render point sits behind the newest sample, in ticks.
@@ -51,10 +76,24 @@ namespace Multiplayer.Game
             get { return resolvedTick; }
         }
 
+        // The last resolve asked for a tick past the newest sample.
+        public bool Starved
+        {
+            get { return starved; }
+        }
+
+        // The last resolve held a single sample instead of blending two.
+        public bool Holding
+        {
+            get { return from != null && to == null; }
+        }
+
         public bool Push(WorldSnapshotMessage snapshot, float receiveTime)
         {
             if (snapshot.Tick <= NewestTick)
                 return false;
+
+            ObserveArrival(snapshot.Tick, receiveTime);
 
             Sample sample;
             if (samples.Count == Capacity)
@@ -68,7 +107,6 @@ namespace Multiplayer.Game
             }
 
             sample.Tick = snapshot.Tick;
-            sample.Time = receiveTime;
             sample.States.Clear();
             List<EntityState> states = snapshot.Entities;
             for (int i = 0; i < states.Count; i++)
@@ -78,6 +116,22 @@ namespace Multiplayer.Game
             return true;
         }
 
+        // Exponential average of arrival minus tick time. A sample far from the average means a
+        // reconnect or a long hitch, so the offset snaps to it instead of easing over.
+        void ObserveArrival(uint tick, float receiveTime)
+        {
+            double sample = receiveTime - tick * TickLength;
+            if (!hasOffset || Math.Abs(sample - offset) > OffsetResetThreshold)
+            {
+                offset = sample;
+                hasOffset = true;
+                offsetResets++;
+                return;
+            }
+
+            offset += (sample - offset) * OffsetAlpha;
+        }
+
         public void Clear()
         {
             for (int i = 0; i < samples.Count; i++)
@@ -85,41 +139,55 @@ namespace Multiplayer.Game
             samples.Clear();
             from = null;
             to = null;
+            blend = 0f;
             ticksBehindNewest = 0f;
             resolvedTick = 0;
+            starved = false;
+            offset = 0.0;
+            hasOffset = false;
         }
 
-        public bool Resolve(float renderTime)
+        // Brackets renderTick between two samples by tick. Past the newest or before the oldest it
+        // holds that sample, never extrapolates.
+        public bool Resolve(double renderTick)
         {
             from = null;
             to = null;
+            blend = 0f;
             ticksBehindNewest = 0f;
             resolvedTick = 0;
+            starved = false;
             if (samples.Count == 0)
                 return false;
 
-            int index = samples.Count - 1;
-            while (index > 0 && samples[index].Time > renderTime)
-                index--;
+            Sample newest = samples[samples.Count - 1];
+            Sample oldest = samples[0];
 
-            uint newestTick = NewestTick;
-            from = samples[index];
-            resolvedTick = from.Tick;
-            if (index == samples.Count - 1 || renderTime <= from.Time)
+            if (renderTick >= newest.Tick)
             {
-                // Past the newest sample or before the oldest: hold, never extrapolate.
-                to = null;
-                blend = 0f;
-                ticksBehindNewest = newestTick - from.Tick;
+                from = newest;
+                resolvedTick = newest.Tick;
+                starved = renderTick > newest.Tick;
                 return true;
             }
 
+            if (renderTick <= oldest.Tick)
+            {
+                from = oldest;
+                resolvedTick = oldest.Tick;
+                ticksBehindNewest = newest.Tick - oldest.Tick;
+                return true;
+            }
+
+            int index = samples.Count - 2;
+            while (index > 0 && samples[index].Tick > renderTick)
+                index--;
+
+            from = samples[index];
             to = samples[index + 1];
-            float span = to.Time - from.Time;
-            blend = span > 0f ? (renderTime - from.Time) / span : 1f;
-            if (blend < 0f) blend = 0f;
-            if (blend > 1f) blend = 1f;
-            ticksBehindNewest = (newestTick - to.Tick) + (1f - blend) * (to.Tick - from.Tick);
+            resolvedTick = from.Tick;
+            blend = (float)((renderTick - from.Tick) / (to.Tick - from.Tick));
+            ticksBehindNewest = (float)(newest.Tick - renderTick);
             return true;
         }
 

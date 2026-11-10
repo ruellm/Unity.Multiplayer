@@ -6,13 +6,15 @@ using Xunit;
 
 namespace Multiplayer.Tests
 {
-    // Drives the pre-RenderClock pipeline and the current one with the same randomized feed:
-    // frame and arrival jitter, packet loss, replayed stale ticks, a mid-run spawn and server death.
+    // Drives the pipeline with a randomized feed: frame and arrival jitter, packet loss, replayed
+    // stale ticks, a mid-run spawn and server death. Entity 1 sits at x == 0.1 * tick and entity 4
+    // at x == tick, so drawn positions say which tick the units are drawn at.
     public sealed class JitterSimulationTests
     {
         const int Frames = 20000;
         const int ServerDeathFrame = 15000;
         const uint SpawnTick = 40;
+        const float Tolerance = 0.001f;
 
         [Theory]
         [InlineData(1)]
@@ -20,42 +22,69 @@ namespace Multiplayer.Tests
         [InlineData(3)]
         [InlineData(4)]
         [InlineData(5)]
-        public void PositionsMatchReferenceBitForBit(int seed)
+        public void PositionsAreLinearInTickDespiteArrivalJitter(int seed)
         {
-            ReferenceSnapshotBuffer reference = new ReferenceSnapshotBuffer();
-            uint referenceLastTick = 0;
             SnapshotBuffer buffer = new SnapshotBuffer();
             RenderClock clock = new RenderClock(buffer);
+            int checkedFrames = 0;
 
             Run(seed,
-                (snapshot, time) =>
-                {
-                    if (snapshot.Tick > referenceLastTick)
-                    {
-                        referenceLastTick = snapshot.Tick;
-                        reference.Push(snapshot, time);
-                    }
-
-                    buffer.Push(snapshot, time);
-                },
+                (snapshot, time) => buffer.Push(snapshot, time),
                 time =>
                 {
-                    bool expectedResolved = reference.Resolve(time - RenderClock.Delay);
-                    Assert.Equal(expectedResolved, clock.Advance(time));
+                    if (!clock.Advance(time))
+                        return;
 
-                    for (int id = 1; id <= 3; id++)
-                    {
-                        Vec2 expected;
-                        EntityState state;
-                        Assert.Equal(reference.TryGetPosition(id, out expected), buffer.TryGetState(id, out state));
-                        Vec2 actual = state.Position;
-                        Assert.Equal(BitConverter.SingleToInt32Bits(expected.X), BitConverter.SingleToInt32Bits(actual.X));
-                        Assert.Equal(BitConverter.SingleToInt32Bits(expected.Z), BitConverter.SingleToInt32Bits(actual.Z));
-                    }
+                    EntityState state;
+                    Assert.True(buffer.TryGetState(1, out state));
+                    float expected = 0.1f * clock.RenderTick;
+                    Assert.InRange(state.Position.X, expected - Tolerance, expected + Tolerance);
+                    checkedFrames++;
                 });
+
+            Assert.InRange(checkedFrames, Frames / 2, Frames);
         }
 
-        // Entity 4 sits at x == tick, so its drawn position is the tick the units are drawn at.
+        // Between holds, the render tick advances with local time at one tick per tick length,
+        // whatever the arrival spacing was. The smoothed offset may drift by a millisecond or so.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(5)]
+        public void RenderTickAdvancesAtTickRateDespiteArrivalJitter(int seed)
+        {
+            const float RateTolerance = 0.004f;
+            SnapshotBuffer buffer = new SnapshotBuffer();
+            RenderClock clock = new RenderClock(buffer);
+            bool previousValid = false;
+            float previousTick = 0f;
+            float previousTime = 0f;
+            int checkedFrames = 0;
+
+            Run(seed,
+                (snapshot, time) => buffer.Push(snapshot, time),
+                time =>
+                {
+                    bool valid = clock.Advance(time) && !clock.Holding;
+                    if (valid && previousValid)
+                    {
+                        float advanced = (clock.RenderTick - previousTick) * (float)SnapshotBuffer.TickLength;
+                        float elapsed = time - previousTime;
+                        Assert.True(advanced >= 0f);
+                        Assert.InRange(advanced, elapsed - RateTolerance, elapsed + RateTolerance);
+                        checkedFrames++;
+                    }
+
+                    previousValid = valid;
+                    previousTick = clock.RenderTick;
+                    previousTime = time;
+                });
+
+            Assert.InRange(checkedFrames, Frames / 2, Frames);
+        }
+
         [Theory]
         [InlineData(1)]
         [InlineData(2)]
@@ -64,7 +93,6 @@ namespace Multiplayer.Tests
         [InlineData(5)]
         public void RenderTickMatchesDrawnPositions(int seed)
         {
-            const float Tolerance = 0.001f;
             SnapshotBuffer buffer = new SnapshotBuffer();
             RenderClock clock = new RenderClock(buffer);
             int checkedFrames = 0;
@@ -95,7 +123,7 @@ namespace Multiplayer.Tests
             Assert.InRange(checkedFrames, Frames / 2, Frames);
         }
 
-        // Oracle: the newest buffered snapshot received at or before render time, else the oldest buffered.
+        // Oracle: the newest buffered tick at or below the render tick, else the oldest buffered.
         [Theory]
         [InlineData(1)]
         [InlineData(2)]
@@ -108,26 +136,23 @@ namespace Multiplayer.Tests
             SnapshotBuffer buffer = new SnapshotBuffer();
             RenderClock clock = new RenderClock(buffer);
             List<uint> acceptedTicks = new List<uint>();
-            List<float> acceptedTimes = new List<float>();
             int checkedFrames = 0;
 
             Run(seed,
                 (snapshot, time) =>
                 {
-                    if (!buffer.Push(snapshot, time))
-                        return;
-
-                    acceptedTicks.Add(snapshot.Tick);
-                    acceptedTimes.Add(time);
+                    if (buffer.Push(snapshot, time))
+                        acceptedTicks.Add(snapshot.Tick);
                 },
                 time =>
                 {
                     if (!clock.Advance(time))
                         return;
 
+                    double renderTick = clock.RenderTickFor(time);
                     int oldest = Math.Max(0, acceptedTicks.Count - BufferCapacity);
                     int index = acceptedTicks.Count - 1;
-                    while (index > oldest && acceptedTimes[index] > clock.RenderTime)
+                    while (index > oldest && acceptedTicks[index] > renderTick)
                         index--;
                     uint expected = acceptedTicks[index];
 
@@ -146,31 +171,39 @@ namespace Multiplayer.Tests
             Assert.InRange(checkedFrames, Frames / 2, Frames);
         }
 
-        static void Run(int seed,Action<WorldSnapshotMessage, float> receive, Action<float> frame)
+        // Ticks leave the server on a fixed 50 ms schedule. Each one arrives 20 ms later give or take
+        // 20 ms, one in ten is lost, and one in fifteen is replaced by a stale replay.
+        static void Run(int seed, Action<WorldSnapshotMessage, float> receive, Action<float> frame)
         {
             Random rng = new Random(seed);
             float time = 0f;
-            uint tick = 0;
-            float nextSnapshot = 0.05f;
+            uint tick = 1;
+            float nextArrival = ArrivalOf(tick, rng);
 
             for (int i = 0; i < Frames; i++)
             {
                 time += 0.004f + (float)rng.NextDouble() * 0.03f;
 
-                while (i < ServerDeathFrame && time >= nextSnapshot)
+                while (i < ServerDeathFrame && time >= nextArrival)
                 {
+                    uint current = tick;
                     tick++;
-                    nextSnapshot += 0.05f + ((float)rng.NextDouble() - 0.5f) * 0.04f;
+                    nextArrival = ArrivalOf(tick, rng);
                     if (rng.Next(10) == 0)
                         continue;
 
-                    uint sent = rng.Next(15) == 0 && tick > 3 ? tick - 2 : tick;
+                    uint sent = rng.Next(15) == 0 && current > 3 ? current - 2 : current;
                     float spawned = sent > SpawnTick ? sent * 0.3f : float.NaN;
                     receive(Snapshots.At(sent, sent * 0.1f, -sent * 0.25f, spawned, sent), time);
                 }
 
                 frame(time);
             }
+        }
+
+        static float ArrivalOf(uint tick, Random rng)
+        {
+            return tick * 0.05f + 0.02f + ((float)rng.NextDouble() - 0.5f) * 0.04f;
         }
     }
 }
