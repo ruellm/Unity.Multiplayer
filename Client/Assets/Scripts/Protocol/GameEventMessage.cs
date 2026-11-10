@@ -24,17 +24,20 @@ namespace Multiplayer.Protocol
     {
         public Vec2 Position;
         public byte ExplosionType;
+        public byte UnitType;
 
         public void Serialize(NetDataWriter writer)
         {
             Position.Serialize(writer);
             writer.Put(ExplosionType);
+            writer.Put(UnitType);
         }
 
         public void Deserialize(NetDataReader reader)
         {
             Position = Vec2.Deserialize(reader);
             ExplosionType = reader.GetByte();
+            UnitType = reader.GetByte();
         }
     }
 
@@ -58,13 +61,14 @@ namespace Multiplayer.Protocol
             return message;
         }
 
-        public static GameEventMessage Exploded(uint tick, Vec2 position, ExplosionType explosionType)
+        public static GameEventMessage Exploded(uint tick, Vec2 position, ExplosionType explosionType, UnitType unitType)
         {
             GameEventMessage message = default;
             message.Tick = tick;
             message.EventType = (byte)GameEventType.Explosion;
             message.Explosion.Position = position;
             message.Explosion.ExplosionType = (byte)explosionType;
+            message.Explosion.UnitType = (byte)unitType;
             return message;
         }
 

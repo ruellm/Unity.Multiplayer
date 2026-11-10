@@ -164,7 +164,7 @@ namespace Multiplayer.Server
 
                 // Stamped with the removal tick, so clients show it as the collapse ends, not as it starts.
                 if (removed.UnitType.IsStructure())
-                    events.Add(GameEventMessage.Exploded(tick, removed.Position, ExplosionType.StructureDestroyed));
+                    events.Add(GameEventMessage.Exploded(tick, removed.Position, ExplosionType.StructureDestroyed, removed.UnitType));
             }
         }
 
@@ -221,6 +221,10 @@ namespace Multiplayer.Server
             target.TargetEntityId = 0;
             target.HasTarget = false;
             events.Add(GameEventMessage.Died(tick, target.EntityId, cause));
+
+            // Tanks blow up as they die. Structures explode when their collapse ends, soldiers never.
+            if (target.UnitType == UnitType.Tank)
+                events.Add(GameEventMessage.Exploded(tick, target.Position, ExplosionType.UnitDestroyed, target.UnitType));
         }
 
         // Rings around the structure, the first one clear of its footprint, each wide enough for

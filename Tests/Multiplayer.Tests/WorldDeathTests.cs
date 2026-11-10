@@ -97,10 +97,35 @@ namespace Multiplayer.Tests
             Assert.Equal(7f, explosion.Explosion.Position.X);
             Assert.Equal(-3f, explosion.Explosion.Position.Z);
             Assert.Equal((byte)ExplosionType.StructureDestroyed, explosion.Explosion.ExplosionType);
+            Assert.Equal((byte)UnitType.HQ, explosion.Explosion.UnitType);
         }
 
         [Fact]
-        public void UnitDeathEmitsNoExplosion()
+        public void TankDeathEmitsOneExplosionOfTypeTankOnTheDeathTick()
+        {
+            Entity victim = world.Spawn(PlayerB, UnitType.Tank, new Vec2(5f, 2f));
+            AttackerInRangeOf(UnitType.Tank, victim);
+            RunUntilDying(victim);
+
+            Assert.Equal(2, world.Events.Count);
+            Assert.Equal((byte)GameEventType.EntityDied, world.Events[0].EventType);
+            GameEventMessage explosion = world.Events[1];
+            Assert.Equal((byte)GameEventType.Explosion, explosion.EventType);
+            Assert.Equal(victim.DeathTick, explosion.Tick);
+            Assert.Equal(5f, explosion.Explosion.Position.X);
+            Assert.Equal(2f, explosion.Explosion.Position.Z);
+            Assert.Equal((byte)ExplosionType.UnitDestroyed, explosion.Explosion.ExplosionType);
+            Assert.Equal((byte)UnitType.Tank, explosion.Explosion.UnitType);
+
+            world.Events.Clear();
+            Run(UnitDefs.DeathTicks(UnitType.Tank) + 5);
+
+            Assert.False(Exists(victim));
+            Assert.Empty(world.Events);
+        }
+
+        [Fact]
+        public void SoldierDeathEmitsNoExplosion()
         {
             Entity victim = world.Spawn(PlayerB, UnitType.Soldier, new Vec2(0f, 0f));
             AttackerInRangeOf(UnitType.Tank, victim);

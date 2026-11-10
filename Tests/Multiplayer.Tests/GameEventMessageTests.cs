@@ -23,7 +23,7 @@ namespace Multiplayer.Tests
         {
             GameEventBatchMessage batch = new GameEventBatchMessage();
             batch.Events.Add(GameEventMessage.Died(1234, 42, DeathCause.Explosion));
-            batch.Events.Add(GameEventMessage.Exploded(1234, new Vec2(7.5f, -3.25f), ExplosionType.StructureDestroyed));
+            batch.Events.Add(GameEventMessage.Exploded(1234, new Vec2(7.5f, -3.25f), ExplosionType.StructureDestroyed, UnitType.Tower));
             batch.Events.Add(GameEventMessage.Died(1234, 43, DeathCause.Shot));
 
             GameEventBatchMessage result = RoundTrip(batch);
@@ -41,6 +41,7 @@ namespace Multiplayer.Tests
             Assert.Equal(7.5f, result.Events[1].Explosion.Position.X);
             Assert.Equal(-3.25f, result.Events[1].Explosion.Position.Z);
             Assert.Equal((byte)ExplosionType.StructureDestroyed, result.Events[1].Explosion.ExplosionType);
+            Assert.Equal((byte)UnitType.Tower, result.Events[1].Explosion.UnitType);
 
             Assert.Equal(43, result.Events[2].EntityDied.EntityId);
             Assert.Equal((byte)DeathCause.Shot, result.Events[2].EntityDied.Cause);

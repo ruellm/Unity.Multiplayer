@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Multiplayer.Server": {
+      "commandName": "Project",
+      "commandLineArgs": "--tick-stats"
+    }
+  }
+}
